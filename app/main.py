@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from app.core.config import settings
-from app.routes import auth, admin, elections
+from app.routes import auth, admin, elections, public
 from app.models.database import engine
 from app.models.models import Base
 import os
@@ -58,6 +58,7 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 app.include_router(admin.router, prefix="/admin", tags=["Administration"])
 app.include_router(elections.router, prefix="/api", tags=["Elections & Voting"])
+app.include_router(public.router, prefix="/api", tags=["Public"])
 
 @app.get("/")
 async def root():
