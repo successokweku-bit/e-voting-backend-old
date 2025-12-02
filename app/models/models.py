@@ -84,15 +84,13 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     nin = Column(String(20), unique=True, index=True, nullable=False)
     email = Column(String(255), unique=True, index=True, nullable=False)
-    
-    # Changed from full_name to first_name and last_name
+    full_name = Column(String(255), nullable=False)
     first_name = Column(String(255), nullable=False)
     last_name = Column(String(255), nullable=False)
-    
     state_of_residence = Column(
         Enum(
             State,
-            values_callable=lambda obj: [e.value for e in obj],
+            values_callable=lambda obj: [e.value for e in obj],  # use .value
             native_enum=False
         ),
         nullable=False
@@ -104,7 +102,7 @@ class User(Base):
     role = Column(
         Enum(
             UserRole,
-            values_callable=lambda obj: [e.value for e in obj],
+            values_callable=lambda obj: [e.value for e in obj],  # use .value
             native_enum=False
         ),
         default=UserRole.USER.value,
