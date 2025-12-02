@@ -77,7 +77,6 @@ class PoliticalParty(Base):
     founded_date = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-
 class User(Base):
     __tablename__ = "users"
     __table_args__ = {'extend_existing': True}
@@ -85,12 +84,15 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     nin = Column(String(20), unique=True, index=True, nullable=False)
     email = Column(String(255), unique=True, index=True, nullable=False)
-    full_name = Column(String(255), nullable=False)
+    
+    # Changed from full_name to first_name and last_name
+    first_name = Column(String(255), nullable=False)
+    last_name = Column(String(255), nullable=False)
     
     state_of_residence = Column(
         Enum(
             State,
-            values_callable=lambda obj: [e.value for e in obj],  # use .value
+            values_callable=lambda obj: [e.value for e in obj],
             native_enum=False
         ),
         nullable=False
@@ -102,7 +104,7 @@ class User(Base):
     role = Column(
         Enum(
             UserRole,
-            values_callable=lambda obj: [e.value for e in obj],  # use .value
+            values_callable=lambda obj: [e.value for e in obj],
             native_enum=False
         ),
         default=UserRole.USER.value,
@@ -114,7 +116,6 @@ class User(Base):
     date_of_birth = Column(DateTime(timezone=True), nullable=True)
     registration_date = Column(DateTime(timezone=True), server_default=func.now())
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-
 
 class OTP(Base):
     __tablename__ = "otps"
