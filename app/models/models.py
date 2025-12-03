@@ -5,6 +5,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import enum
+from datetime import datetime 
 
 Base = declarative_base()
 
@@ -188,8 +189,8 @@ class Candidate(Base):
     position = relationship("Position", back_populates="candidates")
     votes = relationship("Vote", back_populates="candidate")
     party = relationship("PoliticalParty")
-    manifestos = relationship("Manifesto", back_populates="candidate", cascade="all, delete-orphan")  # NEW
-    
+    manifestos = relationship("Manifesto", back_populates="candidate", cascade="all, delete-orphan")
+
 class Vote(Base):
     __tablename__ = "votes"
     __table_args__ = (

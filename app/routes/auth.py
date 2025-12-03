@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from datetime import timedelta
 
 from app.models.database import get_db
-from app.models.models import User, Election
+from app.models.models import User, Election, Vote
 from app.schemas.schemas import (
     Token, LoginRequest, UserCreate, UserResponse, 
     ForgotPasswordRequest, ResetPasswordRequest, OTPResponse,
@@ -318,7 +318,6 @@ async def get_users_paginated(
             message="Error retrieving users"
         )
     
-
 @router.put("/me/profile-image", response_model=StandardResponse[UserResponse])
 async def update_my_profile_image(
     profile_image: UploadFile = File(...),
