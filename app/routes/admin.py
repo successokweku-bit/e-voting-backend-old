@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.models.database import get_db
-from app.models.models import User, UserRole, PoliticalParty, Candidate, Election
-from app.schemas.schemas import UserResponse, StandardResponse, PoliticalPartyCreate, PoliticalPartyResponse
+from app.models.models import User, UserRole, PoliticalParty, Candidate, Election, Manifesto
+from app.schemas.schemas import UserResponse, StandardResponse, PoliticalPartyCreate, PoliticalPartyResponse, ManifestoResponse, ManifestoCreate
 from app.core.roles import get_current_admin, get_current_super_admin
 from app.core.security import get_password_hash
 from app.core.file_upload import FileUploadService
@@ -725,16 +725,17 @@ async def get_all_candidates(
             error=str(e),
             message="Error retrieving candidates"
         )
-@router.get("/candidates/{candidate_id}", response_model=StandardResponse[dict], summary="Get Candidate by ID")
+
+@router.get("/candidates/{candidate_id}", response_model=StandardResponse[dict])
 async def get_candidate_by_id(
     candidate_id: int,
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """Get specific candidate by ID."""
+    """Get specific candidate by ID with manifestos."""
     try:
         candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
-        if not candidate:
+        if not candidate or not candidate.user:
             return StandardResponse[dict](
                 status=False,
                 data=None,
@@ -752,7 +753,15 @@ async def get_candidate_by_id(
             "party_id": candidate.party_id,
             "party_name": candidate.party.name if candidate.party else None,
             "position_id": candidate.position_id,
-            "position_title": candidate.position.title
+            "position_title": candidate.position.title if candidate.position else None,
+            "manifestos": [
+                {
+                    "id": m.id,
+                    "title": m.title,
+                    "content": m.content,
+                    "priority": m.priority
+                } for m in sorted(candidate.manifestos, key=lambda x: (-x.priority, x.created_at))
+            ]
         }
         
         return StandardResponse[dict](
@@ -890,8 +899,347 @@ async def delete_candidate(
             message="Error deleting candidate"
         )
 
-# === ELECTION MANAGEMENT ===
 
+@router.post("/candidates/{candidate_id}/manifestos", response_model=StandardResponse[ManifestoResponse])
+async def create_manifesto(
+    candidate_id: int,
+    manifesto: ManifestoCreate,
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Create a manifesto for a candidate."""
+    try:
+        from app.models.models import Manifesto
+        
+        candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+        if not candidate:
+            return StandardResponse[ManifestoResponse](
+                status=False,
+                data=None,
+                error="Candidate not found",
+                message="Manifesto creation failed"
+            )
+        
+        new_manifesto = Manifesto(
+            candidate_id=candidate_id,
+            title=manifesto.title,
+            content=manifesto.content,
+            priority=manifesto.priority
+        )
+        
+        db.add(new_manifesto)
+        db.commit()
+        db.refresh(new_manifesto)
+        
+        manifesto_response = ManifestoResponse.model_validate(new_manifesto)
+        
+        return StandardResponse[ManifestoResponse](
+            status=True,
+            data=manifesto_response,
+            error=None,
+            message="Manifesto created successfully"
+        )
+        
+    except Exception as e:
+        db.rollback()
+        return StandardResponse[ManifestoResponse](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error creating manifesto"
+        )
+
+@router.get("/candidates/{candidate_id}/manifestos", response_model=StandardResponse[List[ManifestoResponse]])
+async def get_candidate_manifestos(
+    candidate_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Get all manifestos for a candidate."""
+    try:
+        from app.models.models import Manifesto
+        
+        manifestos = db.query(Manifesto)\
+            .filter(Manifesto.candidate_id == candidate_id)\
+            .order_by(Manifesto.priority.desc(), Manifesto.created_at)\
+            .all()
+        
+        manifestos_response = [ManifestoResponse.model_validate(m) for m in manifestos]
+        
+        return StandardResponse[List[ManifestoResponse]](
+            status=True,
+            data=manifestos_response,
+            error=None,
+            message=f"Retrieved {len(manifestos_response)} manifestos"
+        )
+        
+    except Exception as e:
+        return StandardResponse[List[ManifestoResponse]](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error retrieving manifestos"
+        )
+
+@router.put("/manifestos/{manifesto_id}", response_model=StandardResponse[ManifestoResponse])
+async def update_manifesto(
+    manifesto_id: int,
+    manifesto_data: ManifestoCreate,
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Update a manifesto."""
+    try:
+        from app.models.models import Manifesto
+        
+        manifesto = db.query(Manifesto).filter(Manifesto.id == manifesto_id).first()
+        if not manifesto:
+            return StandardResponse[ManifestoResponse](
+                status=False,
+                data=None,
+                error="Manifesto not found",
+                message="Manifesto update failed"
+            )
+        
+        manifesto.title = manifesto_data.title
+        manifesto.content = manifesto_data.content
+        manifesto.priority = manifesto_data.priority
+        manifesto.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(manifesto)
+        
+        manifesto_response = ManifestoResponse.model_validate(manifesto)
+        
+        return StandardResponse[ManifestoResponse](
+            status=True,
+            data=manifesto_response,
+            error=None,
+            message="Manifesto updated successfully"
+        )
+        
+    except Exception as e:
+        db.rollback()
+        return StandardResponse[ManifestoResponse](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error updating manifesto"
+        )
+
+@router.delete("/manifestos/{manifesto_id}", response_model=StandardResponse[dict])
+async def delete_manifesto(
+    manifesto_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Delete a manifesto."""
+    try:
+        from app.models.models import Manifesto
+        
+        manifesto = db.query(Manifesto).filter(Manifesto.id == manifesto_id).first()
+        if not manifesto:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Manifesto not found",
+                message="Manifesto deletion failed"
+            )
+        
+        db.delete(manifesto)
+        db.commit()
+        
+        return StandardResponse[dict](
+            status=True,
+            data={"deleted_manifesto_id": manifesto_id},
+            error=None,
+            message="Manifesto deleted successfully"
+        )
+        
+    except Exception as e:
+        db.rollback()
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error deleting manifesto"
+        )
+    
+# === ELECTION MANAGEMENT ===
+@router.get("/elections", response_model=StandardResponse[List[dict]], summary="Get All Elections")
+async def get_all_elections(
+    is_active: Optional[bool] = Query(None, description="Filter by active status"),
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all elections with optional filtering.
+    
+    **Admin only** - Requires admin authentication.
+    """
+    try:
+        query = db.query(Election)
+        
+        if is_active is not None:
+            query = query.filter(Election.is_active == is_active)
+        
+        elections = query.order_by(Election.created_at.desc()).all()
+        
+        elections_data = []
+        for election in elections:
+            elections_data.append({
+                "election_id": election.id,
+                "title": election.title,
+                "description": election.description,
+                "election_type": election.election_type,
+                "state": election.state,
+                "is_active": election.is_active,
+                "start_date": election.start_date.isoformat() if election.start_date else None,
+                "end_date": election.end_date.isoformat() if election.end_date else None,
+                "created_at": election.created_at.isoformat() if election.created_at else None,
+                "position_count": len(election.positions) if hasattr(election, 'positions') else 0
+            })
+        
+        return StandardResponse[List[dict]](
+            status=True,
+            data=elections_data,
+            error=None,
+            message=f"Retrieved {len(elections_data)} elections"
+        )
+        
+    except Exception as e:
+        return StandardResponse[List[dict]](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error retrieving elections"
+        )
+
+@router.get("/elections/{election_id}", response_model=StandardResponse[dict], summary="Get Election by ID")
+async def get_election_by_id(
+    election_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Get specific election by ID with detailed information.
+    
+    **Admin only** - Requires admin authentication.
+    """
+    try:
+        election = db.query(Election).filter(Election.id == election_id).first()
+        
+        if not election:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Election not found",
+                message="Election retrieval failed"
+            )
+        
+        election_data = {
+            "election_id": election.id,
+            "title": election.title,
+            "description": election.description,
+            "election_type": election.election_type,
+            "state": election.state,
+            "is_active": election.is_active,
+            "start_date": election.start_date.isoformat() if election.start_date else None,
+            "end_date": election.end_date.isoformat() if election.end_date else None,
+            "created_at": election.created_at.isoformat() if election.created_at else None,
+            "position_count": len(election.positions) if hasattr(election, 'positions') else 0,
+            "positions": [
+                {
+                    "position_id": pos.id,
+                    "title": pos.title,
+                    "description": pos.description,
+                    "candidate_count": len(pos.candidates) if hasattr(pos, 'candidates') else 0
+                } for pos in election.positions
+            ] if hasattr(election, 'positions') else []
+        }
+        
+        return StandardResponse[dict](
+            status=True,
+            data=election_data,
+            error=None,
+            message="Election retrieved successfully"
+        )
+        
+    except Exception as e:
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error retrieving election"
+        )
+
+@router.post("/elections", response_model=StandardResponse[dict], summary="Create Election")
+async def create_election(
+    title: str = Form(..., description="Election title"),
+    description: Optional[str] = Form(None, description="Election description"),
+    election_type: str = Form(..., description="Type of election (e.g., Presidential, Gubernatorial)"),
+    state: Optional[str] = Form(None, description="State (if state election)"),
+    is_active: bool = Form(True, description="Active status"),
+    start_date: Optional[datetime] = Form(None, description="Start date"),
+    end_date: Optional[datetime] = Form(None, description="End date"),
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new election.
+    
+    **Admin only** - Requires admin authentication.
+    """
+    try:
+        # Validate dates
+        if start_date and end_date and start_date >= end_date:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="End date must be after start date",
+                message="Election creation failed"
+            )
+        
+        # Create election
+        election = Election(
+            title=title,
+            description=description,
+            election_type=election_type,
+            state=state,
+            is_active=is_active,
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        db.add(election)
+        db.commit()
+        db.refresh(election)
+        
+        return StandardResponse[dict](
+            status=True,
+            data={
+                "election_id": election.id,
+                "title": election.title,
+                "description": election.description,
+                "election_type": election.election_type,
+                "state": election.state,
+                "is_active": election.is_active,
+                "start_date": election.start_date.isoformat() if election.start_date else None,
+                "end_date": election.end_date.isoformat() if election.end_date else None
+            },
+            error=None,
+            message="Election created successfully"
+        )
+        
+    except Exception as e:
+        db.rollback()
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error creating election"
+        )
+    
 @router.put("/elections/{election_id}", response_model=StandardResponse[dict])
 async def update_election(
     election_id: int,
@@ -1027,6 +1375,7 @@ async def delete_election(
             error=str(e),
             message="Error deleting election"
         )
+
 
 # === USER PROFILE IMAGE MANAGEMENT ===
 @router.put("/users/{user_id}/profile-image", response_model=StandardResponse[UserResponse])

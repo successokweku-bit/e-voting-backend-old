@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, validator
+from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
 from typing import Optional, List, Generic, TypeVar
 from datetime import datetime, date
 from enum import Enum
@@ -16,9 +16,7 @@ class StandardResponse(BaseModel, Generic[T]):
     error: Optional[str] = None
     message: Optional[str] = None
 
-    model_config = {
-        "from_attributes": True
-    }
+    model_config = ConfigDict(from_attributes=True)
 
 # -------------------------
 # POLITICAL PARTY SCHEMAS
@@ -37,9 +35,7 @@ class PoliticalPartyResponse(PoliticalPartyBase):
     id: int
     created_at: datetime
 
-    model_config = {
-        "from_attributes": True
-    }
+    model_config = ConfigDict(from_attributes=True)
 
 # -------------------------
 # USER SCHEMAS
@@ -54,7 +50,8 @@ class UserBase(BaseModel):
     role: UserRole = UserRole.USER
 
     # Normalize state
-    @validator("state_of_residence", pre=True)
+    @field_validator("state_of_residence", mode="before")
+    @classmethod
     def normalize_state(cls, v):
         if isinstance(v, State):
             return v
@@ -65,7 +62,8 @@ class UserBase(BaseModel):
         raise ValueError(f"Invalid state '{v}'. Allowed values: {[s.value for s in State]}")
 
     # Normalize role
-    @validator("role", pre=True)
+    @field_validator("role", mode="before")
+    @classmethod
     def normalize_role(cls, v):
         if isinstance(v, UserRole):
             return v
@@ -78,13 +76,15 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
 
-    @validator("password")
+    @field_validator("password")
+    @classmethod
     def password_strength(cls, v):
         if len(v) < 8:
             raise ValueError("Password must be at least 8 characters long")
         return v
 
-    @validator("nin")
+    @field_validator("nin")
+    @classmethod
     def nin_length(cls, v):
         if len(v) != 11:
             raise ValueError("NIN must be 11 digits long")
@@ -99,9 +99,7 @@ class UserResponse(UserBase):
     registration_date: datetime
     created_at: datetime
 
-    model_config = {
-        "from_attributes": True
-    }
+    model_config = ConfigDict(from_attributes=True)
 
 # -------------------------
 # AUTH SCHEMAS
@@ -139,7 +137,8 @@ class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
 
-    @validator("new_password")
+    @field_validator("new_password")
+    @classmethod
     def password_strength(cls, v):
         if len(v) < 8:
             raise ValueError("Password must be at least 8 characters long")
@@ -164,9 +163,7 @@ class ElectionResponse(ElectionBase):
     id: int
     created_at: datetime
 
-    model_config = {
-        "from_attributes": True
-    }
+    model_config = ConfigDict(from_attributes=True)
 
 class PositionBase(BaseModel):
     title: str
@@ -179,9 +176,7 @@ class PositionResponse(PositionBase):
     id: int
     election_id: int
 
-    model_config = {
-        "from_attributes": True
-    }
+    model_config = ConfigDict(from_attributes=True)
 
 class CandidateBase(BaseModel):
     name: str
@@ -197,9 +192,7 @@ class CandidateResponse(CandidateBase):
     position_id: int
     party: Optional[PoliticalPartyResponse] = None
 
-    model_config = {
-        "from_attributes": True
-    }
+    model_config = ConfigDict(from_attributes=True)
 
 class VoteRequest(BaseModel):
     candidate_id: int
@@ -208,9 +201,7 @@ class VoteResponse(BaseModel):
     vote_id: int
     message: str
 
-    model_config = {
-        "from_attributes": True
-    }
+    model_config = ConfigDict(from_attributes=True)
 
 # -------------------------
 # EXTENDED SCHEMAS
@@ -230,9 +221,7 @@ class VoterProfile(BaseModel):
     total_votes_cast: int
     elections_participated: List[str]
 
-    model_config = {
-        "from_attributes": True
-    }
+    model_config = ConfigDict(from_attributes=True)
 
 class PartyResults(BaseModel):
     party: PoliticalPartyResponse
@@ -246,6 +235,23 @@ class ElectionResultsDetailed(BaseModel):
     total_votes: int
     voter_turnout: float
 
-    model_config = {
-        "from_attributes": True
-    }
+    model_config = ConfigDict(from_attributes=True)
+
+# -------------------------
+# MANIFESTO SCHEMAS
+# -------------------------
+class ManifestoCreate(BaseModel):
+    title: str
+    content: str
+    priority: Optional[int] = 0
+
+class ManifestoResponse(BaseModel):
+    id: int
+    candidate_id: int
+    title: str
+    content: str
+    priority: int
+    created_at: datetime
+    updated_at: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
