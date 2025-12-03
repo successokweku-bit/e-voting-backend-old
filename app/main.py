@@ -15,31 +15,14 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# Configure CORS - CRITICAL: Must be added before routes
+# Configure CORS - MUST be before routes and static files
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS if hasattr(settings, 'ALLOWED_ORIGINS') and settings.ALLOWED_ORIGINS else ["*"],
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
-    expose_headers=["*"],
-    max_age=3600,
 )
-
-# Handle preflight OPTIONS requests explicitly
-@app.options("/{full_path:path}")
-async def options_handler(request: Request, full_path: str):
-    """Handle CORS preflight requests"""
-    return JSONResponse(
-        content={},
-        status_code=200,
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Allow-Credentials": "true",
-        }
-    )
 
 # Create database tables
 print("Creating database tables...")
@@ -51,7 +34,7 @@ os.makedirs("uploads/profile_images", exist_ok=True)
 os.makedirs("uploads/party_logos", exist_ok=True)
 os.makedirs("uploads/candidate_images", exist_ok=True)
 
-# Serve static files
+# Serve static files (AFTER CORS middleware)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # Include routers
@@ -75,21 +58,8 @@ async def health_check():
     return {
         "status": "healthy",
         "cors_enabled": True,
-        "allowed_origins": settings.ALLOWED_ORIGINS if hasattr(settings, 'ALLOWED_ORIGINS') else ["*"]
+        "allowed_origins": settings.ALLOWED_ORIGINS
     }
-
-# Global exception handler to ensure CORS headers on errors
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    """Ensure CORS headers are present even on errors"""
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error"},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Credentials": "true",
-        }
-    )
 
 if __name__ == "__main__":
     import uvicorn
