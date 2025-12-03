@@ -302,37 +302,37 @@ async def create_position(
             message="Error creating position"
         )
 
-@router.post("/candidates", response_model=StandardResponse[CandidateResponse])
-async def create_candidate(
-    candidate_data: CandidateCreate,
-    current_user: User = Depends(get_current_admin),
-    db: Session = Depends(get_db)
-):
-    """Create a new candidate (Admin only)"""
-    try:
-        candidate = Candidate(**candidate_data.model_dump())
+# @router.post("/candidates", response_model=StandardResponse[CandidateResponse])
+# async def create_candidate(
+#     candidate_data: CandidateCreate,
+#     current_user: User = Depends(get_current_admin),
+#     db: Session = Depends(get_db)
+# ):
+#     """Create a new candidate (Admin only)"""
+#     try:
+#         candidate = Candidate(**candidate_data.model_dump())
         
-        db.add(candidate)
-        db.commit()
-        db.refresh(candidate)
+#         db.add(candidate)
+#         db.commit()
+#         db.refresh(candidate)
         
-        candidate_response = CandidateResponse.model_validate(candidate)
+#         candidate_response = CandidateResponse.model_validate(candidate)
         
-        return StandardResponse[CandidateResponse](
-            status=True,
-            data=candidate_response,
-            error=None,
-            message="Candidate created successfully"
-        )
+#         return StandardResponse[CandidateResponse](
+#             status=True,
+#             data=candidate_response,
+#             error=None,
+#             message="Candidate created successfully"
+#         )
         
-    except Exception as e:
-        db.rollback()
-        return StandardResponse[CandidateResponse](
-            status=False,
-            data=None,
-            error=str(e),
-            message="Error creating candidate"
-        )
+#     except Exception as e:
+#         db.rollback()
+#         return StandardResponse[CandidateResponse](
+#             status=False,
+#             data=None,
+#             error=str(e),
+#             message="Error creating candidate"
+#         )
     
 
 @router.get("/elections/{election_id}/results", response_model=StandardResponse[dict])

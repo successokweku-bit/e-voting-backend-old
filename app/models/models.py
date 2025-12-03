@@ -180,12 +180,12 @@ class Candidate(Base):
     __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)  # Link to User
     bio = Column(Text)
-    profile_image_url = Column(String(500), nullable=True)
     party_id = Column(Integer, ForeignKey("political_parties.id"), nullable=True)
     position_id = Column(Integer, ForeignKey("positions.id"), nullable=False)
 
+    user = relationship("User")  # Relationship to User
     position = relationship("Position", back_populates="candidates")
     votes = relationship("Vote", back_populates="candidate")
     party = relationship("PoliticalParty")

@@ -586,17 +586,197 @@ async def delete_political_party(
 
 # === CANDIDATE MANAGEMENT ===
 
-@router.put("/candidates/{candidate_id}", response_model=StandardResponse[dict])
-async def update_candidate(
-    candidate_id: int,
-    name: Optional[str] = Form(None),
-    bio: Optional[str] = Form(None),
-    party_id: Optional[int] = Form(None),
-    position_id: Optional[int] = Form(None),
+@router.post("/candidates", response_model=StandardResponse[dict], summary="Create Candidate")
+async def create_candidate(
+    user_id: int = Form(..., description="User ID of the candidate"),
+    bio: Optional[str] = Form(None, description="Candidate biography"),
+    party_id: Optional[int] = Form(None, description="Political party ID"),
+    position_id: int = Form(..., description="Position ID"),
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """Update candidate (Admin only)"""
+    """
+    Create a new candidate from an existing user.
+    
+    **Admin only** - Requires admin authentication.
+    
+    - **user_id**: ID of the registered user to make a candidate
+    - **bio**: Biography of the candidate
+    - **party_id**: ID of the political party (optional)
+    - **position_id**: ID of the position they're running for
+    """
+    try:
+        # Check if user exists
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="User not found",
+                message="Candidate creation failed"
+            )
+        
+        # Check if user is already a candidate
+        existing_candidate = db.query(Candidate).filter(Candidate.user_id == user_id).first()
+        if existing_candidate:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="User is already a candidate",
+                message="Candidate creation failed"
+            )
+        
+        # Verify position exists
+        from app.models.models import Position
+        position = db.query(Position).filter(Position.id == position_id).first()
+        if not position:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Position not found",
+                message="Candidate creation failed"
+            )
+        
+        # Verify party exists if provided
+        if party_id:
+            party = db.query(PoliticalParty).filter(PoliticalParty.id == party_id).first()
+            if not party:
+                return StandardResponse[dict](
+                    status=False,
+                    data=None,
+                    error="Political party not found",
+                    message="Candidate creation failed"
+                )
+        
+        # Create candidate
+        candidate = Candidate(
+            user_id=user_id,
+            bio=bio,
+            party_id=party_id,
+            position_id=position_id
+        )
+        
+        db.add(candidate)
+        db.commit()
+        db.refresh(candidate)
+        
+        return StandardResponse[dict](
+            status=True,
+            data={
+                "candidate_id": candidate.id,
+                "user_id": candidate.user_id,
+                "user_name": user.full_name,
+                "bio": candidate.bio,
+                "party_id": candidate.party_id,
+                "position_id": candidate.position_id
+            },
+            error=None,
+            message="Candidate created successfully"
+        )
+        
+    except Exception as e:
+        db.rollback()
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error creating candidate"
+        )
+
+@router.get("/candidates", response_model=StandardResponse[List[dict]], summary="Get All Candidates")
+async def get_all_candidates(
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Get all candidates with their user information."""
+    try:
+        candidates = db.query(Candidate).all()
+        
+        candidates_data = []
+        for candidate in candidates:
+            candidates_data.append({
+                "candidate_id": candidate.id,
+                "user_id": candidate.user_id,
+                "user_name": candidate.user.full_name,
+                "user_email": candidate.user.email,
+                "profile_image_url": candidate.user.profile_image_url,
+                "bio": candidate.bio,
+                "party_id": candidate.party_id,
+                "party_name": candidate.party.name if candidate.party else None,
+                "position_id": candidate.position_id,
+                "position_title": candidate.position.title
+            })
+        
+        return StandardResponse[List[dict]](
+            status=True,
+            data=candidates_data,
+            error=None,
+            message=f"Retrieved {len(candidates_data)} candidates"
+        )
+        
+    except Exception as e:
+        return StandardResponse[List[dict]](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error retrieving candidates"
+        )
+    
+@router.get("/candidates/{candidate_id}", response_model=StandardResponse[dict], summary="Get Candidate by ID")
+async def get_candidate_by_id(
+    candidate_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Get specific candidate by ID."""
+    try:
+        candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+        if not candidate:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Candidate not found",
+                message="Candidate retrieval failed"
+            )
+        
+        candidate_data = {
+            "candidate_id": candidate.id,
+            "user_id": candidate.user_id,
+            "user_name": candidate.user.full_name,
+            "user_email": candidate.user.email,
+            "profile_image_url": candidate.user.profile_image_url,
+            "bio": candidate.bio,
+            "party_id": candidate.party_id,
+            "party_name": candidate.party.name if candidate.party else None,
+            "position_id": candidate.position_id,
+            "position_title": candidate.position.title
+        }
+        
+        return StandardResponse[dict](
+            status=True,
+            data=candidate_data,
+            error=None,
+            message="Candidate retrieved successfully"
+        )
+        
+    except Exception as e:
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error retrieving candidate"
+        )
+
+@router.put("/candidates/{candidate_id}", response_model=StandardResponse[dict], summary="Update Candidate")
+async def update_candidate(
+    candidate_id: int,
+    bio: Optional[str] = Form(None, description="Candidate biography"),
+    party_id: Optional[int] = Form(None, description="Political party ID"),
+    position_id: Optional[int] = Form(None, description="Position ID"),
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Update candidate information."""
     try:
         candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
         if not candidate:
@@ -608,12 +788,10 @@ async def update_candidate(
             )
         
         # Update fields if provided
-        if name:
-            candidate.name = name
         if bio is not None:
             candidate.bio = bio
+        
         if party_id:
-            # Verify party exists
             party = db.query(PoliticalParty).filter(PoliticalParty.id == party_id).first()
             if not party:
                 return StandardResponse[dict](
@@ -623,8 +801,8 @@ async def update_candidate(
                     message="Candidate update failed"
                 )
             candidate.party_id = party_id
+        
         if position_id:
-            # Verify position exists
             from app.models.models import Position
             position = db.query(Position).filter(Position.id == position_id).first()
             if not position:
@@ -643,7 +821,8 @@ async def update_candidate(
             status=True,
             data={
                 "candidate_id": candidate.id,
-                "name": candidate.name,
+                "user_id": candidate.user_id,
+                "user_name": candidate.user.full_name,
                 "bio": candidate.bio,
                 "party_id": candidate.party_id,
                 "position_id": candidate.position_id
@@ -660,14 +839,14 @@ async def update_candidate(
             error=str(e),
             message="Error updating candidate"
         )
-
-@router.delete("/candidates/{candidate_id}", response_model=StandardResponse[dict])
+    
+@router.delete("/candidates/{candidate_id}", response_model=StandardResponse[dict], summary="Delete Candidate")
 async def delete_candidate(
     candidate_id: int,
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """Delete candidate (Admin only)"""
+    """Delete candidate."""
     try:
         candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
         if not candidate:
@@ -688,10 +867,6 @@ async def delete_candidate(
                 error=f"Cannot delete candidate with {votes} votes",
                 message="Candidate deletion failed"
             )
-        
-        # Delete profile image if exists
-        if candidate.profile_image_url:
-            FileUploadService.delete_file(candidate.profile_image_url)
         
         db.delete(candidate)
         db.commit()
@@ -945,25 +1120,319 @@ async def update_candidate_profile_image(
             message="Error updating candidate profile image"
         )
 
+# === POSITION MANAGEMENT ===
+@router.post("/positions", response_model=StandardResponse[dict], summary="Create Position")
+async def create_position(
+    title: str = Form(..., description="Position title"),
+    description: Optional[str] = Form(None, description="Position description"),
+    election_id: int = Form(..., description="Election ID"),
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new position for an election.
+    
+    **Admin only** - Requires admin authentication.
+    """
+    try:
+        from app.models.models import Position
+        
+        # Verify election exists
+        election = db.query(Election).filter(Election.id == election_id).first()
+        if not election:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Election not found",
+                message="Position creation failed"
+            )
+        
+        # Create position
+        position = Position(
+            title=title,
+            description=description,
+            election_id=election_id
+        )
+        
+        db.add(position)
+        db.commit()
+        db.refresh(position)
+        
+        return StandardResponse[dict](
+            status=True,
+            data={
+                "position_id": position.id,
+                "title": position.title,
+                "description": position.description,
+                "election_id": position.election_id
+            },
+            error=None,
+            message="Position created successfully"
+        )
+        
+    except Exception as e:
+        db.rollback()
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error creating position"
+        )
+
+@router.get("/positions", response_model=StandardResponse[List[dict]], summary="Get All Positions")
+async def get_all_positions(
+    election_id: Optional[int] = Query(None, description="Filter by election ID"),
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Get all positions, optionally filtered by election."""
+    try:
+        from app.models.models import Position
+        
+        query = db.query(Position)
+        
+        if election_id:
+            query = query.filter(Position.election_id == election_id)
+        
+        positions = query.all()
+        
+        positions_data = []
+        for position in positions:
+            positions_data.append({
+                "position_id": position.id,
+                "title": position.title,
+                "description": position.description,
+                "election_id": position.election_id,
+                "election_title": position.election.title,
+                "candidate_count": len(position.candidates)
+            })
+        
+        return StandardResponse[List[dict]](
+            status=True,
+            data=positions_data,
+            error=None,
+            message=f"Retrieved {len(positions_data)} positions"
+        )
+        
+    except Exception as e:
+        return StandardResponse[List[dict]](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error retrieving positions"
+        )
+
+@router.get("/positions/{position_id}", response_model=StandardResponse[dict], summary="Get Position by ID")
+async def get_position_by_id(
+    position_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Get specific position by ID."""
+    try:
+        from app.models.models import Position
+        
+        position = db.query(Position).filter(Position.id == position_id).first()
+        if not position:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Position not found",
+                message="Position retrieval failed"
+            )
+        
+        position_data = {
+            "position_id": position.id,
+            "title": position.title,
+            "description": position.description,
+            "election_id": position.election_id,
+            "election_title": position.election.title,
+            "candidate_count": len(position.candidates)
+        }
+        
+        return StandardResponse[dict](
+            status=True,
+            data=position_data,
+            error=None,
+            message="Position retrieved successfully"
+        )
+        
+    except Exception as e:
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error retrieving position"
+        )
+
+@router.put("/positions/{position_id}", response_model=StandardResponse[dict], summary="Update Position")
+async def update_position(
+    position_id: int,
+    title: Optional[str] = Form(None, description="Position title"),
+    description: Optional[str] = Form(None, description="Position description"),
+    election_id: Optional[int] = Form(None, description="Election ID"),
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Update position information."""
+    try:
+        from app.models.models import Position
+        
+        position = db.query(Position).filter(Position.id == position_id).first()
+        if not position:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Position not found",
+                message="Position update failed"
+            )
+        
+        # Update fields if provided
+        if title:
+            position.title = title
+        
+        if description is not None:
+            position.description = description
+        
+        if election_id:
+            election = db.query(Election).filter(Election.id == election_id).first()
+            if not election:
+                return StandardResponse[dict](
+                    status=False,
+                    data=None,
+                    error="Election not found",
+                    message="Position update failed"
+                )
+            position.election_id = election_id
+        
+        db.commit()
+        db.refresh(position)
+        
+        return StandardResponse[dict](
+            status=True,
+            data={
+                "position_id": position.id,
+                "title": position.title,
+                "description": position.description,
+                "election_id": position.election_id
+            },
+            error=None,
+            message="Position updated successfully"
+        )
+        
+    except Exception as e:
+        db.rollback()
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error updating position"
+        )
+
+@router.delete("/positions/{position_id}", response_model=StandardResponse[dict], summary="Delete Position")
+async def delete_position(
+    position_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Delete position and all associated candidates."""
+    try:
+        from app.models.models import Position
+        
+        position = db.query(Position).filter(Position.id == position_id).first()
+        if not position:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Position not found",
+                message="Position deletion failed"
+            )
+        
+        # Check if position has candidates with votes
+        from app.models.models import Vote
+        for candidate in position.candidates:
+            votes = db.query(Vote).filter(Vote.candidate_id == candidate.id).count()
+            if votes > 0:
+                return StandardResponse[dict](
+                    status=False,
+                    data=None,
+                    error=f"Cannot delete position with candidates who have received votes",
+                    message="Position deletion failed"
+                )
+        
+        # Delete candidates first
+        for candidate in position.candidates:
+            db.delete(candidate)
+        
+        db.delete(position)
+        db.commit()
+        
+        return StandardResponse[dict](
+            status=True,
+            data={"deleted_position_id": position_id},
+            error=None,
+            message="Position deleted successfully"
+        )
+        
+    except Exception as e:
+        db.rollback()
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error deleting position"
+        )
+
 # === ADMIN DASHBOARD ENDPOINTS ===
 
-@router.get("/dashboard/stats", response_model=StandardResponse[dict])
+@router.get("/dashboard/stats", response_model=StandardResponse[dict], summary="Get Dashboard Statistics")
 async def get_dashboard_stats(
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """Get admin dashboard statistics"""
+    """
+    Get comprehensive admin dashboard statistics.
+    
+    **Admin only** - Requires admin authentication.
+    """
     try:
+        from app.models.models import Vote, Position
+        
+        # User statistics
         total_users = db.query(User).count()
         active_users = db.query(User).filter(User.is_active == True).count()
+        inactive_users = total_users - active_users
         admin_users = db.query(User).filter(User.role.in_([UserRole.ADMIN, UserRole.SUPER_ADMIN])).count()
+        regular_users = total_users - admin_users
+        
+        # Election statistics
+        total_elections = db.query(Election).count()
+        active_elections = db.query(Election).filter(Election.is_active == True).count()
+        
+        # Party statistics
+        total_parties = db.query(PoliticalParty).count()
+        
+        # Candidate statistics
+        total_candidates = db.query(Candidate).count()
+        
+        # Vote statistics
+        total_votes = db.query(Vote).count()
+        
+        # Position statistics
+        total_positions = db.query(Position).count()
         
         stats = {
             "total_users": total_users,
             "active_users": active_users,
-            "inactive_users": total_users - active_users,
+            "inactive_users": inactive_users,
             "admin_users": admin_users,
-            "regular_users": total_users - admin_users
+            "regular_users": regular_users,
+            "total_elections": total_elections,
+            "active_elections": active_elections,
+            "total_parties": total_parties,
+            "total_candidates": total_candidates,
+            "total_votes": total_votes,
+            "total_positions": total_positions
         }
         
         return StandardResponse[dict](
