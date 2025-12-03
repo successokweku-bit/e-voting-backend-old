@@ -74,17 +74,28 @@ async def get_user_by_id(
             message="Error retrieving user"
         )
 
-@router.put("/users/{user_id}", response_model=StandardResponse[UserResponse])
+@router.put("/users/{user_id}", response_model=StandardResponse[UserResponse], summary="Update User Profile")
 async def update_user_profile(
     user_id: int,
-    full_name: Optional[str] = Form(None),
-    email: Optional[str] = Form(None),
-    state_of_residence: Optional[str] = Form(None),
-    date_of_birth: Optional[datetime] = Form(None),
+    full_name: Optional[str] = Form(None, description="User's full name"),
+    email: Optional[str] = Form(None, description="User's email address"),
+    state_of_residence: Optional[str] = Form(None, description="State of residence"),
+    date_of_birth: Optional[str] = Form(None, description="Date of birth (YYYY-MM-DD or ISO format)"),
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """Update user profile (Admin only)"""
+    """
+    Update user profile information.
+    
+    **Admin only** - Requires admin authentication.
+    
+    All fields are optional. Only provided fields will be updated.
+    
+    - **full_name**: User's full name
+    - **email**: User's email address (must be unique)
+    - **state_of_residence**: State where user resides
+    - **date_of_birth**: Date of birth in format YYYY-MM-DD or ISO format
+    """
     try:
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
@@ -112,7 +123,26 @@ async def update_user_profile(
         if state_of_residence:
             user.state_of_residence = state_of_residence
         if date_of_birth:
-            user.date_of_birth = date_of_birth
+            # Parse the date string
+            try:
+                # Try different date formats
+                for fmt in ["%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%SZ"]:
+                    try:
+                        parsed_date = datetime.strptime(date_of_birth, fmt)
+                        user.date_of_birth = parsed_date
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    # If no format matched, try fromisoformat
+                    user.date_of_birth = datetime.fromisoformat(date_of_birth.replace('Z', '+00:00'))
+            except Exception as date_error:
+                return StandardResponse[UserResponse](
+                    status=False,
+                    data=None,
+                    error=f"Invalid date format. Use YYYY-MM-DD or ISO format. Error: {str(date_error)}",
+                    message="User update failed"
+                )
         
         db.commit()
         db.refresh(user)
