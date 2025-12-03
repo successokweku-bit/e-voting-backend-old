@@ -74,6 +74,7 @@ async def get_user_by_id(
             message="Error retrieving user"
         )
 
+
 @router.put("/users/{user_id}", response_model=StandardResponse[UserResponse], summary="Update User Profile")
 async def update_user_profile(
     user_id: int,
@@ -87,22 +88,13 @@ async def update_user_profile(
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """
-    Update user profile information.
-    
-    **Admin only** - Requires admin authentication.
-    
-    All fields are optional. Only provided fields will be updated.
-    
-    - **nin**: National Identification Number (must be unique)
-    - **email**: User's email address (must be unique)
-    - **full_name**: User's full name
-    - **state_of_residence**: State where user resides (must match State enum)
-    - **date_of_birth**: Date of birth in format YYYY-MM-DD
-    - **is_active**: Whether user account is active
-    - **is_verified**: Whether user is verified
-    """
+    """Update user profile information."""
     try:
+        # DEBUG: Print what we received
+        print(f"Received data - NIN: {nin}, Email: {email}, Full Name: {full_name}")
+        print(f"State: {state_of_residence}, DOB: {date_of_birth}")
+        print(f"Active: {is_active}, Verified: {is_verified}")
+        
         from app.models.models import State
         
         user = db.query(User).filter(User.id == user_id).first()
@@ -114,9 +106,11 @@ async def update_user_profile(
                 message="User update failed"
             )
         
+        # Track what fields are being updated
+        updated_fields = []
+        
         # Update NIN if provided
         if nin:
-            # Check if NIN already exists for another user
             existing_user = db.query(User).filter(User.nin == nin, User.id != user_id).first()
             if existing_user:
                 return StandardResponse[UserResponse](
@@ -126,10 +120,10 @@ async def update_user_profile(
                     message="User update failed"
                 )
             user.nin = nin
+            updated_fields.append("nin")
         
         # Update email if provided
         if email:
-            # Check if email already exists for another user
             existing_user = db.query(User).filter(User.email == email, User.id != user_id).first()
             if existing_user:
                 return StandardResponse[UserResponse](
@@ -139,14 +133,15 @@ async def update_user_profile(
                     message="User update failed"
                 )
             user.email = email
+            updated_fields.append("email")
         
         # Update full name if provided
         if full_name:
             user.full_name = full_name
+            updated_fields.append("full_name")
         
         # Update state of residence if provided
         if state_of_residence:
-            # Validate state exists in State enum
             valid_states = [state.value for state in State]
             if state_of_residence not in valid_states:
                 return StandardResponse[UserResponse](
@@ -156,21 +151,22 @@ async def update_user_profile(
                     message="User update failed"
                 )
             user.state_of_residence = state_of_residence
+            updated_fields.append("state_of_residence")
         
         # Update date of birth if provided
         if date_of_birth:
             try:
-                # Parse the date string
                 for fmt in ["%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%SZ"]:
                     try:
                         parsed_date = datetime.strptime(date_of_birth, fmt)
                         user.date_of_birth = parsed_date
+                        updated_fields.append("date_of_birth")
                         break
                     except ValueError:
                         continue
                 else:
-                    # If no format matched, try fromisoformat
                     user.date_of_birth = datetime.fromisoformat(date_of_birth.replace('Z', '+00:00'))
+                    updated_fields.append("date_of_birth")
             except Exception as date_error:
                 return StandardResponse[UserResponse](
                     status=False,
@@ -181,7 +177,6 @@ async def update_user_profile(
         
         # Update is_active if provided
         if is_active is not None:
-            # Prevent self-deactivation
             if user_id == current_user.id and not is_active:
                 return StandardResponse[UserResponse](
                     status=False,
@@ -190,10 +185,14 @@ async def update_user_profile(
                     message="User update failed"
                 )
             user.is_active = is_active
+            updated_fields.append("is_active")
         
         # Update is_verified if provided
         if is_verified is not None:
             user.is_verified = is_verified
+            updated_fields.append("is_verified")
+        
+        print(f"Updated fields: {updated_fields}")  # DEBUG
         
         db.commit()
         db.refresh(user)
@@ -204,17 +203,162 @@ async def update_user_profile(
             status=True,
             data=user_response,
             error=None,
-            message="User profile updated successfully"
+            message=f"User profile updated successfully. Updated: {', '.join(updated_fields) if updated_fields else 'no fields'}"
         )
         
     except Exception as e:
         db.rollback()
+        print(f"Error: {str(e)}")  # DEBUG
         return StandardResponse[UserResponse](
             status=False,
             data=None,
             error=str(e),
             message="Error updating user profile"
         )
+    
+# @router.put("/users/{user_id}", response_model=StandardResponse[UserResponse], summary="Update User Profile")
+# async def update_user_profile(
+#     user_id: int,
+#     nin: Optional[str] = Form(None, description="National Identification Number"),
+#     email: Optional[str] = Form(None, description="User's email address"),
+#     full_name: Optional[str] = Form(None, description="User's full name"),
+#     state_of_residence: Optional[str] = Form(None, description="State of residence"),
+#     date_of_birth: Optional[str] = Form(None, description="Date of birth (YYYY-MM-DD)"),
+#     is_active: Optional[bool] = Form(None, description="User active status"),
+#     is_verified: Optional[bool] = Form(None, description="User verification status"),
+#     current_user: User = Depends(get_current_admin),
+#     db: Session = Depends(get_db)
+# ):
+#     """
+#     Update user profile information.
+    
+#     **Admin only** - Requires admin authentication.
+    
+#     All fields are optional. Only provided fields will be updated.
+    
+#     - **nin**: National Identification Number (must be unique)
+#     - **email**: User's email address (must be unique)
+#     - **full_name**: User's full name
+#     - **state_of_residence**: State where user resides (must match State enum)
+#     - **date_of_birth**: Date of birth in format YYYY-MM-DD
+#     - **is_active**: Whether user account is active
+#     - **is_verified**: Whether user is verified
+#     """
+#     try:
+#         from app.models.models import State
+        
+#         user = db.query(User).filter(User.id == user_id).first()
+#         if not user:
+#             return StandardResponse[UserResponse](
+#                 status=False,
+#                 data=None,
+#                 error="User not found",
+#                 message="User update failed"
+#             )
+        
+#         # Update NIN if provided
+#         if nin:
+#             # Check if NIN already exists for another user
+#             existing_user = db.query(User).filter(User.nin == nin, User.id != user_id).first()
+#             if existing_user:
+#                 return StandardResponse[UserResponse](
+#                     status=False,
+#                     data=None,
+#                     error="NIN already exists",
+#                     message="User update failed"
+#                 )
+#             user.nin = nin
+        
+#         # Update email if provided
+#         if email:
+#             # Check if email already exists for another user
+#             existing_user = db.query(User).filter(User.email == email, User.id != user_id).first()
+#             if existing_user:
+#                 return StandardResponse[UserResponse](
+#                     status=False,
+#                     data=None,
+#                     error="Email already exists",
+#                     message="User update failed"
+#                 )
+#             user.email = email
+        
+#         # Update full name if provided
+#         if full_name:
+#             user.full_name = full_name
+        
+#         # Update state of residence if provided
+#         if state_of_residence:
+#             # Validate state exists in State enum
+#             valid_states = [state.value for state in State]
+#             if state_of_residence not in valid_states:
+#                 return StandardResponse[UserResponse](
+#                     status=False,
+#                     data=None,
+#                     error=f"Invalid state. Must be one of: {', '.join(valid_states)}",
+#                     message="User update failed"
+#                 )
+#             user.state_of_residence = state_of_residence
+        
+#         # Update date of birth if provided
+#         if date_of_birth:
+#             try:
+#                 # Parse the date string
+#                 for fmt in ["%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%SZ"]:
+#                     try:
+#                         parsed_date = datetime.strptime(date_of_birth, fmt)
+#                         user.date_of_birth = parsed_date
+#                         break
+#                     except ValueError:
+#                         continue
+#                 else:
+#                     # If no format matched, try fromisoformat
+#                     user.date_of_birth = datetime.fromisoformat(date_of_birth.replace('Z', '+00:00'))
+#             except Exception as date_error:
+#                 return StandardResponse[UserResponse](
+#                     status=False,
+#                     data=None,
+#                     error=f"Invalid date format. Use YYYY-MM-DD. Error: {str(date_error)}",
+#                     message="User update failed"
+#                 )
+        
+#         # Update is_active if provided
+#         if is_active is not None:
+#             # Prevent self-deactivation
+#             if user_id == current_user.id and not is_active:
+#                 return StandardResponse[UserResponse](
+#                     status=False,
+#                     data=None,
+#                     error="Cannot deactivate your own account",
+#                     message="User update failed"
+#                 )
+#             user.is_active = is_active
+        
+#         # Update is_verified if provided
+#         if is_verified is not None:
+#             user.is_verified = is_verified
+        
+#         db.commit()
+#         db.refresh(user)
+        
+#         user_response = UserResponse.model_validate(user)
+        
+#         return StandardResponse[UserResponse](
+#             status=True,
+#             data=user_response,
+#             error=None,
+#             message="User profile updated successfully"
+#         )
+        
+#     except Exception as e:
+#         db.rollback()
+#         return StandardResponse[UserResponse](
+#             status=False,
+#             data=None,
+#             error=str(e),
+#             message="Error updating user profile"
+#         )
+
+
 
 @router.put("/users/{user_id}/role", response_model=StandardResponse[UserResponse])
 async def update_user_role(
