@@ -85,8 +85,8 @@ class User(Base):
     nin = Column(String(20), unique=True, index=True, nullable=False)
     email = Column(String(255), unique=True, index=True, nullable=False)
     full_name = Column(String(255), nullable=False)
-    first_name = Column(String(255), nullable=False)
-    last_name = Column(String(255), nullable=False)
+    # first_name = Column(String(255), nullable=False)
+    # last_name = Column(String(255), nullable=False)
     state_of_residence = Column(
         Enum(
             State,
