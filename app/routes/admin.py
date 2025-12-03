@@ -694,6 +694,10 @@ async def get_all_candidates(
         
         candidates_data = []
         for candidate in candidates:
+            # Handle missing user gracefully
+            if not candidate.user:
+                continue  # Skip candidates without valid users
+            
             candidates_data.append({
                 "candidate_id": candidate.id,
                 "user_id": candidate.user_id,
@@ -704,7 +708,7 @@ async def get_all_candidates(
                 "party_id": candidate.party_id,
                 "party_name": candidate.party.name if candidate.party else None,
                 "position_id": candidate.position_id,
-                "position_title": candidate.position.title
+                "position_title": candidate.position.title if candidate.position else None
             })
         
         return StandardResponse[List[dict]](
@@ -721,7 +725,6 @@ async def get_all_candidates(
             error=str(e),
             message="Error retrieving candidates"
         )
-    
 @router.get("/candidates/{candidate_id}", response_model=StandardResponse[dict], summary="Get Candidate by ID")
 async def get_candidate_by_id(
     candidate_id: int,
@@ -1026,7 +1029,6 @@ async def delete_election(
         )
 
 # === USER PROFILE IMAGE MANAGEMENT ===
-
 @router.put("/users/{user_id}/profile-image", response_model=StandardResponse[UserResponse])
 async def update_user_profile_image(
     user_id: int,
@@ -1075,7 +1077,6 @@ async def update_user_profile_image(
         )
 
 # === CANDIDATE IMAGE MANAGEMENT ===
-
 @router.put("/candidates/{candidate_id}/profile-image", response_model=StandardResponse[dict])
 async def update_candidate_profile_image(
     candidate_id: int,
