@@ -183,6 +183,10 @@ class CandidateBase(BaseModel):
     bio: Optional[str] = None
     profile_image_url: Optional[str] = None
 
+class ManifestoItem(BaseModel):
+    title: str
+    description: str
+    
 class CandidateCreate(CandidateBase):
     position_id: int
     party_id: Optional[int] = None
@@ -240,18 +244,18 @@ class ElectionResultsDetailed(BaseModel):
 # -------------------------
 # MANIFESTO SCHEMAS
 # -------------------------
-class ManifestoCreate(BaseModel):
-    title: str
-    content: str
-    priority: Optional[int] = 0
+# class ManifestoCreate(BaseModel):
+#     title: str
+#     content: str
+#     priority: Optional[int] = 0
 
-class ManifestoResponse(BaseModel):
-    id: int
-    candidate_id: int
-    title: str
-    content: str
-    priority: int
-    created_at: datetime
-    updated_at: datetime
+# class ManifestoResponse(BaseModel):
+#     id: int
+#     candidate_id: int
+#     title: str
+#     content: str
+#     priority: int
+#     created_at: datetime
+#     updated_at: datetime
     
-    model_config = ConfigDict(from_attributes=True)
+#     model_config = ConfigDict(from_attributes=True)

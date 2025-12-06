@@ -6,6 +6,8 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import enum
 from datetime import datetime 
+from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy import JSON
 
 Base = declarative_base()
 
@@ -184,12 +186,12 @@ class Candidate(Base):
     bio = Column(Text)
     party_id = Column(Integer, ForeignKey("political_parties.id"), nullable=True)
     position_id = Column(Integer, ForeignKey("positions.id"), nullable=False)
-
+    manifestos = Column(JSON, nullable=True, default=list)  # This is all you need!
+    
     user = relationship("User")
     position = relationship("Position", back_populates="candidates")
     votes = relationship("Vote", back_populates="candidate")
     party = relationship("PoliticalParty")
-    manifestos = relationship("Manifesto", back_populates="candidate", cascade="all, delete-orphan")
 
 class Vote(Base):
     __tablename__ = "votes"
@@ -208,17 +210,3 @@ class Vote(Base):
     user = relationship("User")
     candidate = relationship("Candidate", back_populates="votes")
     election = relationship("Election", back_populates="votes")
-
-class Manifesto(Base):
-    __tablename__ = "manifestos"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    candidate_id = Column(Integer, ForeignKey("candidates.id"), nullable=False)
-    title = Column(String(255), nullable=False)
-    content = Column(Text, nullable=False)
-    priority = Column(Integer, default=0)  # For ordering
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Relationship
-    candidate = relationship("Candidate", back_populates="manifestos")

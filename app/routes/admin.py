@@ -4,11 +4,14 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.models.database import get_db
-from app.models.models import User, UserRole, PoliticalParty, Candidate, Election, Manifesto
-from app.schemas.schemas import UserResponse, StandardResponse, PoliticalPartyCreate, PoliticalPartyResponse, ManifestoResponse, ManifestoCreate
+from app.models.models import User, UserRole, PoliticalParty, Candidate, Election
+from app.schemas.schemas import UserResponse, StandardResponse, PoliticalPartyCreate, PoliticalPartyResponse
 from app.core.roles import get_current_admin, get_current_super_admin
 from app.core.security import get_password_hash
 from app.core.file_upload import FileUploadService
+
+from typing import List, Optional
+import json
 
 router = APIRouter()
 
@@ -585,25 +588,28 @@ async def delete_political_party(
         )
 
 # === CANDIDATE MANAGEMENT ===
-
 @router.post("/candidates", response_model=StandardResponse[dict], summary="Create Candidate")
 async def create_candidate(
     user_id: int = Form(..., description="User ID of the candidate"),
     bio: Optional[str] = Form(None, description="Candidate biography"),
     party_id: Optional[int] = Form(None, description="Political party ID"),
     position_id: int = Form(..., description="Position ID"),
+    manifestos: Optional[str] = Form(None, description="JSON string of manifestos array: [{\"title\": \"...\", \"description\": \"...\"}]"),
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
     """
-    Create a new candidate from an existing user.
+    Create a new candidate from an existing user with manifestos.
     
     **Admin only** - Requires admin authentication.
     
-    - **user_id**: ID of the registered user to make a candidate
-    - **bio**: Biography of the candidate
-    - **party_id**: ID of the political party (optional)
-    - **position_id**: ID of the position they're running for
+    **Manifestos Format**: Send as JSON string array
+```json
+    [
+      {"title": "Education Reform", "description": "Improve schools..."},
+      {"title": "Healthcare", "description": "Better healthcare access..."}
+    ]
+```
     """
     try:
         # Check if user exists
@@ -648,12 +654,59 @@ async def create_candidate(
                     message="Candidate creation failed"
                 )
         
+        # Parse and validate manifestos
+        manifestos_list = []
+        if manifestos:
+            try:
+                manifestos_list = json.loads(manifestos)
+                
+                # Validate manifesto structure
+                if not isinstance(manifestos_list, list):
+                    return StandardResponse[dict](
+                        status=False,
+                        data=None,
+                        error="Manifestos must be an array",
+                        message="Candidate creation failed"
+                    )
+                
+                for idx, item in enumerate(manifestos_list):
+                    if not isinstance(item, dict):
+                        return StandardResponse[dict](
+                            status=False,
+                            data=None,
+                            error=f"Manifesto item {idx + 1} must be an object",
+                            message="Candidate creation failed"
+                        )
+                    if 'title' not in item or 'description' not in item:
+                        return StandardResponse[dict](
+                            status=False,
+                            data=None,
+                            error=f"Manifesto item {idx + 1} must have 'title' and 'description' fields",
+                            message="Candidate creation failed"
+                        )
+                    if not item['title'] or not item['description']:
+                        return StandardResponse[dict](
+                            status=False,
+                            data=None,
+                            error=f"Manifesto item {idx + 1} title and description cannot be empty",
+                            message="Candidate creation failed"
+                        )
+                        
+            except json.JSONDecodeError as e:
+                return StandardResponse[dict](
+                    status=False,
+                    data=None,
+                    error=f"Invalid JSON format for manifestos: {str(e)}",
+                    message="Candidate creation failed"
+                )
+        
         # Create candidate
         candidate = Candidate(
             user_id=user_id,
             bio=bio,
             party_id=party_id,
-            position_id=position_id
+            position_id=position_id,
+            manifestos=manifestos_list
         )
         
         db.add(candidate)
@@ -666,9 +719,15 @@ async def create_candidate(
                 "candidate_id": candidate.id,
                 "user_id": candidate.user_id,
                 "user_name": user.full_name,
+                "user_email": user.email,
+                "profile_image_url": user.profile_image_url,
                 "bio": candidate.bio,
                 "party_id": candidate.party_id,
-                "position_id": candidate.position_id
+                "party_name": candidate.party.name if candidate.party else None,
+                "position_id": candidate.position_id,
+                "position_title": candidate.position.title,
+                "manifestos": candidate.manifestos,
+                "manifesto_count": len(candidate.manifestos) if candidate.manifestos else 0
             },
             error=None,
             message="Candidate created successfully"
@@ -676,6 +735,7 @@ async def create_candidate(
         
     except Exception as e:
         db.rollback()
+        print(f"Error creating candidate: {str(e)}")  # DEBUG
         return StandardResponse[dict](
             status=False,
             data=None,
@@ -685,19 +745,21 @@ async def create_candidate(
 
 @router.get("/candidates", response_model=StandardResponse[List[dict]], summary="Get All Candidates")
 async def get_all_candidates(
+    position_id: Optional[int] = Query(None, description="Filter by position ID"),
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """Get all candidates with their user information."""
+    """Get all candidates with their user information and manifestos."""
     try:
-        candidates = db.query(Candidate).all()
+        query = db.query(Candidate)
+        
+        if position_id:
+            query = query.filter(Candidate.position_id == position_id)
+        
+        candidates = query.all()
         
         candidates_data = []
         for candidate in candidates:
-            # Handle missing user gracefully
-            if not candidate.user:
-                continue  # Skip candidates without valid users
-            
             candidates_data.append({
                 "candidate_id": candidate.id,
                 "user_id": candidate.user_id,
@@ -707,8 +769,11 @@ async def get_all_candidates(
                 "bio": candidate.bio,
                 "party_id": candidate.party_id,
                 "party_name": candidate.party.name if candidate.party else None,
+                "party_acronym": candidate.party.acronym if candidate.party else None,
                 "position_id": candidate.position_id,
-                "position_title": candidate.position.title if candidate.position else None
+                "position_title": candidate.position.title,
+                "manifestos": candidate.manifestos if candidate.manifestos else [],
+                "manifesto_count": len(candidate.manifestos) if candidate.manifestos else 0
             })
         
         return StandardResponse[List[dict]](
@@ -726,16 +791,16 @@ async def get_all_candidates(
             message="Error retrieving candidates"
         )
 
-@router.get("/candidates/{candidate_id}", response_model=StandardResponse[dict])
+@router.get("/candidates/{candidate_id}", response_model=StandardResponse[dict], summary="Get Candidate by ID")
 async def get_candidate_by_id(
     candidate_id: int,
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """Get specific candidate by ID with manifestos."""
+    """Get specific candidate by ID with full details."""
     try:
         candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
-        if not candidate or not candidate.user:
+        if not candidate:
             return StandardResponse[dict](
                 status=False,
                 data=None,
@@ -752,16 +817,11 @@ async def get_candidate_by_id(
             "bio": candidate.bio,
             "party_id": candidate.party_id,
             "party_name": candidate.party.name if candidate.party else None,
+            "party_acronym": candidate.party.acronym if candidate.party else None,
             "position_id": candidate.position_id,
-            "position_title": candidate.position.title if candidate.position else None,
-            "manifestos": [
-                {
-                    "id": m.id,
-                    "title": m.title,
-                    "content": m.content,
-                    "priority": m.priority
-                } for m in sorted(candidate.manifestos, key=lambda x: (-x.priority, x.created_at))
-            ]
+            "position_title": candidate.position.title,
+            "manifestos": candidate.manifestos if candidate.manifestos else [],
+            "manifesto_count": len(candidate.manifestos) if candidate.manifestos else 0
         }
         
         return StandardResponse[dict](
@@ -785,10 +845,15 @@ async def update_candidate(
     bio: Optional[str] = Form(None, description="Candidate biography"),
     party_id: Optional[int] = Form(None, description="Political party ID"),
     position_id: Optional[int] = Form(None, description="Position ID"),
+    manifestos: Optional[str] = Form(None, description="JSON string of manifestos array"),
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """Update candidate information."""
+    """
+    Update candidate information including manifestos.
+    
+    **Note**: Updating manifestos replaces the entire array.
+    """
     try:
         candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
         if not candidate:
@@ -799,10 +864,14 @@ async def update_candidate(
                 message="Candidate update failed"
             )
         
-        # Update fields if provided
+        updated_fields = []
+        
+        # Update bio if provided
         if bio is not None:
             candidate.bio = bio
+            updated_fields.append("bio")
         
+        # Update party if provided
         if party_id:
             party = db.query(PoliticalParty).filter(PoliticalParty.id == party_id).first()
             if not party:
@@ -813,7 +882,9 @@ async def update_candidate(
                     message="Candidate update failed"
                 )
             candidate.party_id = party_id
+            updated_fields.append("party")
         
+        # Update position if provided
         if position_id:
             from app.models.models import Position
             position = db.query(Position).filter(Position.id == position_id).first()
@@ -825,6 +896,48 @@ async def update_candidate(
                     message="Candidate update failed"
                 )
             candidate.position_id = position_id
+            updated_fields.append("position")
+        
+        # Update manifestos if provided
+        if manifestos is not None:
+            try:
+                manifestos_list = json.loads(manifestos)
+                
+                # Validate manifesto structure
+                if not isinstance(manifestos_list, list):
+                    return StandardResponse[dict](
+                        status=False,
+                        data=None,
+                        error="Manifestos must be an array",
+                        message="Candidate update failed"
+                    )
+                
+                for idx, item in enumerate(manifestos_list):
+                    if not isinstance(item, dict):
+                        return StandardResponse[dict](
+                            status=False,
+                            data=None,
+                            error=f"Manifesto item {idx + 1} must be an object",
+                            message="Candidate update failed"
+                        )
+                    if 'title' not in item or 'description' not in item:
+                        return StandardResponse[dict](
+                            status=False,
+                            data=None,
+                            error=f"Manifesto item {idx + 1} must have 'title' and 'description' fields",
+                            message="Candidate update failed"
+                        )
+                
+                candidate.manifestos = manifestos_list
+                updated_fields.append("manifestos")
+                
+            except json.JSONDecodeError as e:
+                return StandardResponse[dict](
+                    status=False,
+                    data=None,
+                    error=f"Invalid JSON format for manifestos: {str(e)}",
+                    message="Candidate update failed"
+                )
         
         db.commit()
         db.refresh(candidate)
@@ -837,28 +950,33 @@ async def update_candidate(
                 "user_name": candidate.user.full_name,
                 "bio": candidate.bio,
                 "party_id": candidate.party_id,
-                "position_id": candidate.position_id
+                "party_name": candidate.party.name if candidate.party else None,
+                "position_id": candidate.position_id,
+                "position_title": candidate.position.title,
+                "manifestos": candidate.manifestos if candidate.manifestos else [],
+                "updated_fields": updated_fields
             },
             error=None,
-            message="Candidate updated successfully"
+            message=f"Candidate updated successfully. Updated: {', '.join(updated_fields)}"
         )
         
     except Exception as e:
         db.rollback()
+        print(f"Error updating candidate: {str(e)}")  # DEBUG
         return StandardResponse[dict](
             status=False,
             data=None,
             error=str(e),
             message="Error updating candidate"
         )
-    
+
 @router.delete("/candidates/{candidate_id}", response_model=StandardResponse[dict], summary="Delete Candidate")
 async def delete_candidate(
     candidate_id: int,
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """Delete candidate."""
+    """Delete candidate. Cannot delete if candidate has received votes."""
     try:
         candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
         if not candidate:
@@ -876,7 +994,7 @@ async def delete_candidate(
             return StandardResponse[dict](
                 status=False,
                 data=None,
-                error=f"Cannot delete candidate with {votes} votes",
+                error=f"Cannot delete candidate with {votes} votes. Deactivate instead.",
                 message="Candidate deletion failed"
             )
         
@@ -900,171 +1018,6 @@ async def delete_candidate(
         )
 
 
-@router.post("/candidates/{candidate_id}/manifestos", response_model=StandardResponse[ManifestoResponse])
-async def create_manifesto(
-    candidate_id: int,
-    manifesto: ManifestoCreate,
-    current_user: User = Depends(get_current_admin),
-    db: Session = Depends(get_db)
-):
-    """Create a manifesto for a candidate."""
-    try:
-        from app.models.models import Manifesto
-        
-        candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
-        if not candidate:
-            return StandardResponse[ManifestoResponse](
-                status=False,
-                data=None,
-                error="Candidate not found",
-                message="Manifesto creation failed"
-            )
-        
-        new_manifesto = Manifesto(
-            candidate_id=candidate_id,
-            title=manifesto.title,
-            content=manifesto.content,
-            priority=manifesto.priority
-        )
-        
-        db.add(new_manifesto)
-        db.commit()
-        db.refresh(new_manifesto)
-        
-        manifesto_response = ManifestoResponse.model_validate(new_manifesto)
-        
-        return StandardResponse[ManifestoResponse](
-            status=True,
-            data=manifesto_response,
-            error=None,
-            message="Manifesto created successfully"
-        )
-        
-    except Exception as e:
-        db.rollback()
-        return StandardResponse[ManifestoResponse](
-            status=False,
-            data=None,
-            error=str(e),
-            message="Error creating manifesto"
-        )
-
-@router.get("/candidates/{candidate_id}/manifestos", response_model=StandardResponse[List[ManifestoResponse]])
-async def get_candidate_manifestos(
-    candidate_id: int,
-    current_user: User = Depends(get_current_admin),
-    db: Session = Depends(get_db)
-):
-    """Get all manifestos for a candidate."""
-    try:
-        from app.models.models import Manifesto
-        
-        manifestos = db.query(Manifesto)\
-            .filter(Manifesto.candidate_id == candidate_id)\
-            .order_by(Manifesto.priority.desc(), Manifesto.created_at)\
-            .all()
-        
-        manifestos_response = [ManifestoResponse.model_validate(m) for m in manifestos]
-        
-        return StandardResponse[List[ManifestoResponse]](
-            status=True,
-            data=manifestos_response,
-            error=None,
-            message=f"Retrieved {len(manifestos_response)} manifestos"
-        )
-        
-    except Exception as e:
-        return StandardResponse[List[ManifestoResponse]](
-            status=False,
-            data=None,
-            error=str(e),
-            message="Error retrieving manifestos"
-        )
-
-@router.put("/manifestos/{manifesto_id}", response_model=StandardResponse[ManifestoResponse])
-async def update_manifesto(
-    manifesto_id: int,
-    manifesto_data: ManifestoCreate,
-    current_user: User = Depends(get_current_admin),
-    db: Session = Depends(get_db)
-):
-    """Update a manifesto."""
-    try:
-        from app.models.models import Manifesto
-        
-        manifesto = db.query(Manifesto).filter(Manifesto.id == manifesto_id).first()
-        if not manifesto:
-            return StandardResponse[ManifestoResponse](
-                status=False,
-                data=None,
-                error="Manifesto not found",
-                message="Manifesto update failed"
-            )
-        
-        manifesto.title = manifesto_data.title
-        manifesto.content = manifesto_data.content
-        manifesto.priority = manifesto_data.priority
-        manifesto.updated_at = datetime.utcnow()
-        
-        db.commit()
-        db.refresh(manifesto)
-        
-        manifesto_response = ManifestoResponse.model_validate(manifesto)
-        
-        return StandardResponse[ManifestoResponse](
-            status=True,
-            data=manifesto_response,
-            error=None,
-            message="Manifesto updated successfully"
-        )
-        
-    except Exception as e:
-        db.rollback()
-        return StandardResponse[ManifestoResponse](
-            status=False,
-            data=None,
-            error=str(e),
-            message="Error updating manifesto"
-        )
-
-@router.delete("/manifestos/{manifesto_id}", response_model=StandardResponse[dict])
-async def delete_manifesto(
-    manifesto_id: int,
-    current_user: User = Depends(get_current_admin),
-    db: Session = Depends(get_db)
-):
-    """Delete a manifesto."""
-    try:
-        from app.models.models import Manifesto
-        
-        manifesto = db.query(Manifesto).filter(Manifesto.id == manifesto_id).first()
-        if not manifesto:
-            return StandardResponse[dict](
-                status=False,
-                data=None,
-                error="Manifesto not found",
-                message="Manifesto deletion failed"
-            )
-        
-        db.delete(manifesto)
-        db.commit()
-        
-        return StandardResponse[dict](
-            status=True,
-            data={"deleted_manifesto_id": manifesto_id},
-            error=None,
-            message="Manifesto deleted successfully"
-        )
-        
-    except Exception as e:
-        db.rollback()
-        return StandardResponse[dict](
-            status=False,
-            data=None,
-            error=str(e),
-            message="Error deleting manifesto"
-        )
-    
 # === ELECTION MANAGEMENT ===
 @router.get("/elections", response_model=StandardResponse[List[dict]], summary="Get All Elections")
 async def get_all_elections(
