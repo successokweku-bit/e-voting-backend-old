@@ -760,6 +760,16 @@ async def get_all_candidates(
         
         candidates_data = []
         for candidate in candidates:
+            # Skip candidates with missing user
+            if not candidate.user:
+                print(f"Warning: Candidate {candidate.id} has no associated user")
+                continue
+                
+            # Skip candidates with missing position
+            if not candidate.position:
+                print(f"Warning: Candidate {candidate.id} has no associated position")
+                continue
+            
             candidates_data.append({
                 "candidate_id": candidate.id,
                 "user_id": candidate.user_id,
@@ -784,13 +794,16 @@ async def get_all_candidates(
         )
         
     except Exception as e:
+        print(f"Error in get_all_candidates: {str(e)}")  # DEBUG
+        import traceback
+        traceback.print_exc()  # Print full error trace
         return StandardResponse[List[dict]](
             status=False,
             data=None,
             error=str(e),
             message="Error retrieving candidates"
         )
-
+    
 @router.get("/candidates/{candidate_id}", response_model=StandardResponse[dict], summary="Get Candidate by ID")
 async def get_candidate_by_id(
     candidate_id: int,
@@ -805,6 +818,24 @@ async def get_candidate_by_id(
                 status=False,
                 data=None,
                 error="Candidate not found",
+                message="Candidate retrieval failed"
+            )
+        
+        # Check if user exists
+        if not candidate.user:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Candidate's user account not found",
+                message="Candidate retrieval failed"
+            )
+        
+        # Check if position exists
+        if not candidate.position:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Candidate's position not found",
                 message="Candidate retrieval failed"
             )
         
@@ -832,13 +863,16 @@ async def get_candidate_by_id(
         )
         
     except Exception as e:
+        print(f"Error in get_candidate_by_id: {str(e)}")  # DEBUG
+        import traceback
+        traceback.print_exc()
         return StandardResponse[dict](
             status=False,
             data=None,
             error=str(e),
             message="Error retrieving candidate"
         )
-
+    
 @router.put("/candidates/{candidate_id}", response_model=StandardResponse[dict], summary="Update Candidate")
 async def update_candidate(
     candidate_id: int,

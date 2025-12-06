@@ -182,11 +182,11 @@ class Candidate(Base):
     __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
     bio = Column(Text)
-    party_id = Column(Integer, ForeignKey("political_parties.id"), nullable=True)
-    position_id = Column(Integer, ForeignKey("positions.id"), nullable=False)
-    manifestos = Column(JSON, nullable=True, default=list)  # This is all you need!
+    party_id = Column(Integer, ForeignKey("political_parties.id", ondelete="SET NULL"), nullable=True)
+    position_id = Column(Integer, ForeignKey("positions.id", ondelete="CASCADE"), nullable=False)
+    manifestos = Column(JSON, nullable=True, default=list)
     
     user = relationship("User")
     position = relationship("Position", back_populates="candidates")
