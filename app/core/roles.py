@@ -13,7 +13,12 @@ async def get_current_admin(
     if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions. Admin access required."
+            detail={
+                "status": False,
+                "data": None,
+                "error": "Administrator access required",
+                "message": "Access denied"
+            }
         )
     return current_user
 
@@ -25,7 +30,12 @@ async def get_current_super_admin(
     if current_user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions. Super Admin access required."
+            detail={
+                "status": False,
+                "data": None,
+                "error": "Super administrator access required",
+                "message": "Access denied"
+            }
         )
     return current_user
 

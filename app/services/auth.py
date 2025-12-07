@@ -18,22 +18,38 @@ class AuthService:
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid credentials"
+                detail={
+                    "status": False,
+                    "data": None,
+                    "error": "Invalid email/NIN or password",
+                    "message": "Authentication failed"
+                }
             )
         
         if not verify_password(login_data.password, user.hashed_password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid credentials"
+                detail={
+                    "status": False,
+                    "data": None,
+                    "error": "Invalid email/NIN or password",
+                    "message": "Authentication failed"
+                }
             )
         
         if not user.is_active:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Account is inactive"
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "status": False,
+                    "data": None,
+                    "error": "Account is inactive. Please contact administrator.",
+                    "message": "Account access denied"
+                }
             )
         
         return user
+    
     @staticmethod
     def create_user(db: Session, user_data: UserCreate) -> User:
         """Create a new user"""
@@ -49,13 +65,23 @@ class AuthService:
                 print(f"❌ Email already registered: {user_data.email}")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Email already registered"
+                    detail={
+                        "status": False,
+                        "data": None,
+                        "error": "Email address is already registered",
+                        "message": "Registration failed"
+                    }
                 )
             else:
                 print(f"❌ NIN already registered: {user_data.nin}")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="NIN already registered"
+                    detail={
+                        "status": False,
+                        "data": None,
+                        "error": "NIN is already registered",
+                        "message": "Registration failed"
+                    }
                 )
         
         # Create new user - preserve role from request or default to USER
@@ -83,14 +109,24 @@ class AuthService:
         if payload is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication credentials"
+                detail={
+                    "status": False,
+                    "data": None,
+                    "error": "Invalid or expired authentication token",
+                    "message": "Authentication failed"
+                }
             )
         
         username: str = payload.get("sub")
         if username is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication credentials"
+                detail={
+                    "status": False,
+                    "data": None,
+                    "error": "Invalid token payload",
+                    "message": "Authentication failed"
+                }
             )
         
         user = db.query(User).filter(
@@ -100,7 +136,12 @@ class AuthService:
         if user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found"
+                detail={
+                    "status": False,
+                    "data": None,
+                    "error": "User account not found",
+                    "message": "Authentication failed"
+                }
             )
         
         return user

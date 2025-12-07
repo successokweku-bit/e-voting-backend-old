@@ -23,7 +23,12 @@ class FileUploadService:
             if len(contents) > FileUploadService.MAX_FILE_SIZE:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"File too large. Maximum size is {FileUploadService.MAX_FILE_SIZE // (1024 * 1024)}MB"
+                    detail={
+                        "status": False,
+                        "data": None,
+                        "error": f"File size exceeds maximum limit of {FileUploadService.MAX_FILE_SIZE // (1024 * 1024)}MB",
+                        "message": "File upload failed"
+                    }
                 )
             
             # Validate file extension
@@ -31,7 +36,12 @@ class FileUploadService:
             if file_extension not in FileUploadService.ALLOWED_EXTENSIONS:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Invalid file type. Allowed types: {', '.join(FileUploadService.ALLOWED_EXTENSIONS)}"
+                    detail={
+                        "status": False,
+                        "data": None,
+                        "error": f"Invalid file type. Allowed types: {', '.join(FileUploadService.ALLOWED_EXTENSIONS)}",
+                        "message": "File upload failed"
+                    }
                 )
             
             # Generate unique filename
@@ -48,7 +58,15 @@ class FileUploadService:
         except Exception as e:
             if isinstance(e, HTTPException):
                 raise e
-            raise HTTPException(status_code=500, detail="Error uploading file")
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "status": False,
+                    "data": None,
+                    "error": str(e),
+                    "message": "Error uploading file"
+                }
+            )
     
     @staticmethod
     def delete_file(file_url: str) -> bool:
