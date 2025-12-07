@@ -23,6 +23,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,
 )
 
 # Create database tables
@@ -46,15 +48,25 @@ app.include_router(public.router, prefix="/api", tags=["Public"])
 
 # === CUSTOM EXCEPTION HANDLERS ===
 
+def get_cors_headers():
+    """Get CORS headers for error responses"""
+    return {
+        "Access-Control-Allow-Origin": "*",  # Use specific origin in production
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+        "Access-Control-Allow-Headers": "*",
+    }
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    """Handle HTTP exceptions with structured response"""
+    """Handle HTTP exceptions with structured response and CORS headers"""
     
     # If detail is already structured (dict), use it
     if isinstance(exc.detail, dict):
         return JSONResponse(
             status_code=exc.status_code,
-            content=exc.detail
+            content=exc.detail,
+            headers=get_cors_headers()
         )
     
     # Otherwise, structure it
@@ -65,12 +77,13 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             "data": None,
             "error": exc.detail,
             "message": get_error_message(exc.status_code)
-        }
+        },
+        headers=get_cors_headers()
     )
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Handle validation errors with structured response"""
+    """Handle validation errors with structured response and CORS headers"""
     errors = []
     for error in exc.errors():
         field = " -> ".join(str(x) for x in error["loc"])
@@ -84,13 +97,14 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "data": None,
             "error": "; ".join(errors),
             "message": "Validation error"
-        }
+        },
+        headers=get_cors_headers()
     )
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
-    """Handle all other exceptions with structured response"""
-    print(f"Unhandled exception: {str(exc)}")  # Log for debugging
+    """Handle all other exceptions with structured response and CORS headers"""
+    print(f"❌ Unhandled exception: {str(exc)}")  # Log for debugging
     import traceback
     traceback.print_exc()
     
@@ -99,9 +113,10 @@ async def general_exception_handler(request: Request, exc: Exception):
         content={
             "status": False,
             "data": None,
-            "error": "An unexpected error occurred",
+            "error": str(exc) if settings.DEBUG else "An unexpected error occurred",
             "message": "Internal server error"
-        }
+        },
+        headers=get_cors_headers()
     )
 
 def get_error_message(status_code: int) -> str:
