@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from sqlalchemy import func
@@ -15,6 +15,11 @@ from app.schemas.schemas import (
 )
 from app.core.roles import get_current_admin
 from app.routes.auth import get_current_active_user
+from app.services.secure_voting_service import SecureVotingService
+from app.core.roles import get_current_super_admin
+ 
+from app.services.secure_voting_service import SecureVotingService
+from app.core.roles import get_current_super_admin
 
 router = APIRouter()
 
@@ -448,4 +453,327 @@ async def get_all_parties_public(db: Session = Depends(get_db)):
             data=None,
             error=str(e),
             message="Error retrieving political parties"
+        )
+    
+# ==================== SECURE VOTING ENDPOINTS ====================
+# Add these routes to your existing router
+
+@router.post("/elections/{election_id}/positions/{position_id}/vote-secure", 
+             response_model=StandardResponse[dict])
+async def cast_secure_vote(
+    request: Request,
+    election_id: int,
+    position_id: int,
+    vote_data: VoteRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Cast an encrypted, anonymous vote for a specific position
+    Returns a vote receipt that the voter can use to verify their vote
+    """
+    try:
+        # Get IP address
+        from fastapi import Request
+        ip_address = request.client.host if request.client else None
+        
+        result = SecureVotingService.cast_encrypted_vote(
+            db=db,
+            user=current_user,
+            election_id=election_id,
+            position_id=position_id,
+            candidate_id=vote_data.candidate_id,
+            ip_address=ip_address
+        )
+        
+        return StandardResponse[dict](
+            status=True,
+            data=result,
+            error=None,
+            message=result["message"]
+        )
+    
+    except HTTPException as e:
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=e.detail.get("error") if isinstance(e.detail, dict) else str(e.detail),
+            message="Failed to cast vote"
+        )
+    except Exception as e:
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Failed to cast vote"
+        )
+
+
+@router.post("/vote/verify-receipt", response_model=StandardResponse[dict])
+async def verify_vote_receipt(
+    request: Request,
+    vote_receipt: str = Query(..., description="Vote receipt to verify"),
+    db: Session = Depends(get_db)
+):
+    """
+    Verify a vote receipt (public endpoint - no authentication required)
+    
+    Allows voters to confirm their vote was counted without revealing their identity
+    """
+    try:
+        # Get IP address
+        ip_address = request.client.host if request.client else None
+        
+        result = SecureVotingService.verify_vote_receipt(
+            db=db,
+            vote_receipt=vote_receipt,
+            ip_address=ip_address
+        )
+        
+        return StandardResponse[dict](
+            status=True,
+            data=result,
+            error=None,
+            message=result["message"]
+        )
+    
+    except HTTPException as e:
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=e.detail.get("error") if isinstance(e.detail, dict) else str(e.detail),
+            message="Verification failed"
+        )
+    except Exception as e:
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Failed to verify receipt"
+        )
+
+
+@router.post("/elections/{election_id}/tally-secure", response_model=StandardResponse[dict])
+async def tally_election_secure(
+    election_id: int,
+    current_user: User = Depends(get_current_super_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Tally votes for an election using encrypted votes (Super Admin only)
+    
+    Decrypts votes, verifies integrity, and counts votes for all positions
+    """
+    try:
+        result = SecureVotingService.tally_election_votes(
+            db=db,
+            admin_user=current_user,
+            election_id=election_id
+        )
+        
+        return StandardResponse[dict](
+            status=True,
+            data=result,
+            error=None,
+            message=result["message"]
+        )
+    
+    except HTTPException as e:
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=e.detail.get("error") if isinstance(e.detail, dict) else str(e.detail),
+            message="Tally failed"
+        )
+    except Exception as e:
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Failed to tally votes"
+        )
+
+
+@router.get("/elections/{election_id}/my-voting-status", response_model=StandardResponse[dict])
+async def get_my_voting_status(
+    election_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get current user's voting status for all positions in an election
+    Shows which positions they've voted for and their receipts
+    """
+    try:
+        result = SecureVotingService.get_user_voting_status(
+            db=db,
+            user_id=current_user.id,
+            election_id=election_id
+        )
+        
+        return StandardResponse[dict](
+            status=True,
+            data=result,
+            error=None,
+            message="Voting status retrieved successfully"
+        )
+    
+    except Exception as e:
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Failed to get voting status"
+        )
+
+
+@router.get("/elections/{election_id}/positions/{position_id}/has-voted", 
+            response_model=StandardResponse[dict])
+async def check_position_voted(
+    election_id: int,
+    position_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Check if current user has already voted for a specific position
+    """
+    try:
+        has_voted = SecureVotingService.check_user_voted_for_position(
+            db=db,
+            user_id=current_user.id,
+            election_id=election_id,
+            position_id=position_id
+        )
+        
+        return StandardResponse[dict](
+            status=True,
+            data={
+                "has_voted": has_voted,
+                "election_id": election_id,
+                "position_id": position_id
+            },
+            error=None,
+            message="Vote status checked"
+        )
+    
+    except Exception as e:
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Failed to check vote status"
+        )
+
+
+@router.get("/audit/verify", response_model=StandardResponse[dict])
+async def verify_audit_trail(
+    current_user: User = Depends(get_current_super_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Verify entire audit trail integrity (Super Admin only)
+    
+    Checks blockchain-style hash chain for tampering
+    """
+    try:
+        result = SecureVotingService.verify_audit_trail(db=db)
+        
+        return StandardResponse[dict](
+            status=True,
+            data=result,
+            error=None,
+            message=result["message"]
+        )
+    
+    except Exception as e:
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Failed to verify audit trail"
+        )
+
+
+@router.get("/elections/{election_id}/secure-statistics", response_model=StandardResponse[dict])
+async def get_secure_election_statistics(
+    election_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Get secure election statistics (Admin only)
+    Shows encrypted vote counts without revealing individual votes
+    """
+    try:
+        from app.models.models import EncryptedVote, Position
+        
+        election = db.query(Election).filter(Election.id == election_id).first()
+        if not election:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Election not found",
+                message="Statistics retrieval failed"
+            )
+        
+        # Get all positions
+        positions = db.query(Position).filter(Position.election_id == election_id).all()
+        
+        position_stats = []
+        total_secure_votes = 0
+        
+        for position in positions:
+            vote_count = db.query(EncryptedVote).filter(
+                EncryptedVote.election_id == election_id,
+                EncryptedVote.position_id == position.id
+            ).count()
+            
+            verified_count = db.query(EncryptedVote).filter(
+                EncryptedVote.election_id == election_id,
+                EncryptedVote.position_id == position.id,
+                EncryptedVote.verified == True
+            ).count()
+            
+            position_stats.append({
+                "position_id": position.id,
+                "position_title": position.title,
+                "total_votes": vote_count,
+                "verified_votes": verified_count,
+                "pending_votes": vote_count - verified_count
+            })
+            
+            total_secure_votes += vote_count
+        
+        # Get verification attempts
+        vote_receipts = db.query(EncryptedVote.vote_receipt).filter(
+            EncryptedVote.election_id == election_id
+        ).all()
+        receipt_list = [r[0] for r in vote_receipts]
+        
+        from app.models.models import VoteVerification
+        verification_count = db.query(VoteVerification).filter(
+            VoteVerification.vote_receipt.in_(receipt_list)
+        ).count() if receipt_list else 0
+        
+        return StandardResponse[dict](
+            status=True,
+            data={
+                "election_id": election_id,
+                "election_name": election.title,
+                "total_secure_votes": total_secure_votes,
+                "verification_attempts": verification_count,
+                "position_statistics": position_stats,
+                "election_status": "active" if datetime.utcnow() < election.end_date else "ended"
+            },
+            error=None,
+            message="Statistics retrieved successfully"
+        )
+    
+    except Exception as e:
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Failed to get statistics"
         )
