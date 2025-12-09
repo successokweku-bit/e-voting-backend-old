@@ -737,6 +737,16 @@ async def get_all_candidates(
                 "party_acronym": candidate.party.acronym if candidate.party else None,
                 "position_id": candidate.position_id,
                 "position_title": candidate.position.title,
+                
+                "election": {
+                    "election_id": candidate.position.election.id,
+                    "election_title": candidate.position.election.title,
+                    "election_description": candidate.position.election.description,
+                    "election_start": candidate.position.election.start_date,
+                    "election_end": candidate.position.election.end_date,
+                    "is_active": candidate.position.election.is_active,
+                },
+
                 "manifestos": candidate.manifestos if candidate.manifestos else [],
                 "manifesto_count": len(candidate.manifestos) if candidate.manifestos else 0
             })
