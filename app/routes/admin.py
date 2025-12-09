@@ -854,7 +854,7 @@ async def update_candidate(
     bio: Optional[str] = Form(None, description="Candidate biography"),
     party_id: Optional[int] = Form(None, description="Political party ID"),
     position_id: Optional[int] = Form(None, description="Position ID"),
-    election_id: Optional[int] = Form(None, description="Election ID"), 
+    election_id: Optional[int] = Form(None, description="Election ID"),
     manifestos: Optional[str] = Form(None, description="JSON string of manifestos array"),
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
@@ -865,6 +865,14 @@ async def update_candidate(
     **Note**: Updating manifestos replaces the entire array.
     """
     try:
+        # DEBUG: Print received data
+        print(f"🔍 UPDATE REQUEST for candidate {candidate_id}")
+        print(f"  Bio: {bio}")
+        print(f"  Party ID: {party_id}")
+        print(f"  Position ID: {position_id}")
+        print(f"  Election ID: {election_id}")
+        print(f"  Manifestos: {manifestos}")
+        
         candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
         if not candidate:
             return StandardResponse[dict](
@@ -874,10 +882,19 @@ async def update_candidate(
                 message="Candidate update failed"
             )
         
+        # DEBUG: Print old values
+        print(f"📋 OLD VALUES:")
+        print(f"  Old Bio: {candidate.bio}")
+        print(f"  Old Party ID: {candidate.party_id}")
+        print(f"  Old Position ID: {candidate.position_id}")
+        print(f"  Old Election ID: {candidate.election_id}")
+        print(f"  Old Manifestos: {candidate.manifestos}")
+        
         updated_fields = []
         
         # Update bio if provided and not empty
         if bio is not None and bio.strip():
+            print(f"✏️  Updating bio from '{candidate.bio}' to '{bio}'")
             candidate.bio = bio
             updated_fields.append("bio")
         
@@ -891,6 +908,7 @@ async def update_candidate(
                     error="Political party not found",
                     message="Candidate update failed"
                 )
+            print(f"✏️  Updating party from {candidate.party_id} to {party_id}")
             candidate.party_id = party_id
             updated_fields.append("party")
         
@@ -905,10 +923,11 @@ async def update_candidate(
                     error="Position not found",
                     message="Candidate update failed"
                 )
+            print(f"✏️  Updating position from {candidate.position_id} to {position_id}")
             candidate.position_id = position_id
             updated_fields.append("position")
         
-        # Update election if provided (ADD THIS)
+        # Update election if provided
         if election_id is not None and election_id > 0:
             election = db.query(Election).filter(Election.id == election_id).first()
             if not election:
@@ -918,6 +937,7 @@ async def update_candidate(
                     error="Election not found",
                     message="Candidate update failed"
                 )
+            print(f"✏️  Updating election from {candidate.election_id} to {election_id}")
             candidate.election_id = election_id
             updated_fields.append("election")
         
@@ -950,6 +970,7 @@ async def update_candidate(
                             message="Candidate update failed"
                         )
                 
+                print(f"✏️  Updating manifestos from {candidate.manifestos} to {manifestos_list}")
                 candidate.manifestos = manifestos_list
                 updated_fields.append("manifestos")
                 
@@ -961,12 +982,27 @@ async def update_candidate(
                     message="Candidate update failed"
                 )
         
+        print(f"📝 Fields to update: {updated_fields}")
+        
         # Only commit if there are changes
         if updated_fields:
             db.commit()
+            
+            # Force refresh from database
+            db.expire(candidate)
             db.refresh(candidate)
+            
+            # DEBUG: Print new values after commit
+            print(f"✅ NEW VALUES AFTER COMMIT:")
+            print(f"  New Bio: {candidate.bio}")
+            print(f"  New Party ID: {candidate.party_id}")
+            print(f"  New Position ID: {candidate.position_id}")
+            print(f"  New Election ID: {candidate.election_id}")
+            print(f"  New Manifestos: {candidate.manifestos}")
+            
             message = f"Candidate updated successfully. Updated: {', '.join(updated_fields)}"
         else:
+            print(f"⚠️  No fields to update!")
             message = "No changes detected. Candidate not updated."
         
         return StandardResponse[dict](
@@ -980,8 +1016,8 @@ async def update_candidate(
                 "party_name": candidate.party.name if candidate.party else None,
                 "position_id": candidate.position_id,
                 "position_title": candidate.position.title if candidate.position else None,
-                "election_id": candidate.election_id,  # ADD THIS
-                "election_title": candidate.election.title if candidate.election else None,  # ADD THIS
+                "election_id": candidate.election_id,
+                "election_title": candidate.election.title if candidate.election else None,
                 "manifestos": candidate.manifestos if candidate.manifestos else [],
                 "updated_fields": updated_fields
             },
@@ -1000,7 +1036,7 @@ async def update_candidate(
             error=str(e),
             message="Error updating candidate"
         )
-    
+
 @router.delete("/candidates/{candidate_id}", response_model=StandardResponse[dict], summary="Delete Candidate")
 async def delete_candidate(
     candidate_id: int,
