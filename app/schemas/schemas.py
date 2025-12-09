@@ -206,6 +206,17 @@ class CandidateCreate(BaseModel):
 
 #     model_config = ConfigDict(from_attributes=True)
 
+class ElectionInfo(BaseModel):
+    id: int
+    title: str
+    description: Optional[str]
+    election_type: Optional[str]
+    state: Optional[str]
+    start_date: Optional[datetime]
+    end_date: Optional[datetime]
+
+    model_config = ConfigDict(from_attributes=True)
+
 
 class CandidateResponse(BaseModel):
     id: int
@@ -266,13 +277,3 @@ class ElectionResultsDetailed(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class ElectionInfo(BaseModel):
-    id: int
-    title: str
-    description: Optional[str]
-    election_type: Optional[str]
-    state: Optional[str]
-    start_date: Optional[datetime]
-    end_date: Optional[datetime]
-
-    model_config = ConfigDict(from_attributes=True)

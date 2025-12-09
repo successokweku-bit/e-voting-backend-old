@@ -45,6 +45,7 @@ app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 app.include_router(admin.router, prefix="/admin", tags=["Administration"])
 app.include_router(elections.router, prefix="/api", tags=["Elections & Voting"])
 app.include_router(public.router, prefix="/api", tags=["Public"])
+<<<<<<< HEAD
 
 # === CUSTOM EXCEPTION HANDLERS ===
 
@@ -132,6 +133,8 @@ def get_error_message(status_code: int) -> str:
     return messages.get(status_code, "An error occurred")
 
 # === ENDPOINTS ===
+=======
+>>>>>>> e172cc0 (add the update features for users, candidates, elections, parties)
 
 @app.get("/")
 async def root():

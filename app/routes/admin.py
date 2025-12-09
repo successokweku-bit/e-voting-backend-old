@@ -4,8 +4,13 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.models.database import get_db
+<<<<<<< HEAD
 from app.models.models import User, UserRole, PoliticalParty, Candidate, Election, Position
 from app.schemas.schemas import UserResponse, StandardResponse, PoliticalPartyCreate, PoliticalPartyResponse,ElectionInfo, CandidateCreate, CandidateResponse, StandardResponse
+=======
+from app.models.models import User, UserRole, PoliticalParty, Candidate, Election
+from app.schemas.schemas import UserResponse, StandardResponse, PoliticalPartyCreate, PoliticalPartyResponse
+>>>>>>> e172cc0 (add the update features for users, candidates, elections, parties)
 from app.core.roles import get_current_admin, get_current_super_admin
 from app.core.security import get_password_hash
 from app.core.file_upload import FileUploadService
@@ -80,6 +85,7 @@ async def get_user_by_id(
             message="Error retrieving user"
         )
 
+<<<<<<< HEAD
 
 @router.put("/users/{user_id}", response_model=StandardResponse[UserResponse], summary="Update User Profile")
 async def update_user_profile(
@@ -103,6 +109,20 @@ async def update_user_profile(
         
         from app.models.models import State
         
+=======
+@router.put("/users/{user_id}", response_model=StandardResponse[UserResponse])
+async def update_user_profile(
+    user_id: int,
+    full_name: Optional[str] = Form(None),
+    email: Optional[str] = Form(None),
+    state_of_residence: Optional[str] = Form(None),
+    date_of_birth: Optional[datetime] = Form(None),
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Update user profile (Admin only)"""
+    try:
+>>>>>>> e172cc0 (add the update features for users, candidates, elections, parties)
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
             return StandardResponse[UserResponse](
@@ -112,6 +132,7 @@ async def update_user_profile(
                 message="User update failed"
             )
         
+<<<<<<< HEAD
         # Track what fields are being updated
         updated_fields = []
         
@@ -130,6 +151,13 @@ async def update_user_profile(
         
         # Update email if provided
         if email:
+=======
+        # Update fields if provided
+        if full_name:
+            user.full_name = full_name
+        if email:
+            # Check if email already exists for another user
+>>>>>>> e172cc0 (add the update features for users, candidates, elections, parties)
             existing_user = db.query(User).filter(User.email == email, User.id != user_id).first()
             if existing_user:
                 return StandardResponse[UserResponse](
@@ -139,6 +167,7 @@ async def update_user_profile(
                     message="User update failed"
                 )
             user.email = email
+<<<<<<< HEAD
             updated_fields.append("email")
         
         # Update full name if provided
@@ -199,6 +228,12 @@ async def update_user_profile(
             updated_fields.append("is_verified")
         
         print(f"Updated fields: {updated_fields}")  # DEBUG
+=======
+        if state_of_residence:
+            user.state_of_residence = state_of_residence
+        if date_of_birth:
+            user.date_of_birth = date_of_birth
+>>>>>>> e172cc0 (add the update features for users, candidates, elections, parties)
         
         db.commit()
         db.refresh(user)
@@ -209,12 +244,19 @@ async def update_user_profile(
             status=True,
             data=user_response,
             error=None,
+<<<<<<< HEAD
             message=f"User profile updated successfully. Updated: {', '.join(updated_fields) if updated_fields else 'no fields'}"
+=======
+            message="User profile updated successfully"
+>>>>>>> e172cc0 (add the update features for users, candidates, elections, parties)
         )
         
     except Exception as e:
         db.rollback()
+<<<<<<< HEAD
         print(f"Error: {str(e)}")  # DEBUG
+=======
+>>>>>>> e172cc0 (add the update features for users, candidates, elections, parties)
         return StandardResponse[UserResponse](
             status=False,
             data=None,
@@ -539,6 +581,327 @@ async def update_political_party(
             error=str(e),
             message="Error updating political party"
         )
+<<<<<<< HEAD
+=======
+
+@router.delete("/parties/{party_id}", response_model=StandardResponse[dict])
+async def delete_political_party(
+    party_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Delete political party (Admin only)"""
+    try:
+        party = db.query(PoliticalParty).filter(PoliticalParty.id == party_id).first()
+        if not party:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Political party not found",
+                message="Party deletion failed"
+            )
+        
+        # Check if party has candidates
+        candidates = db.query(Candidate).filter(Candidate.party_id == party_id).count()
+        if candidates > 0:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error=f"Cannot delete party with {candidates} associated candidates",
+                message="Party deletion failed"
+            )
+        
+        # Delete logo if exists
+        if party.logo_url:
+            FileUploadService.delete_file(party.logo_url)
+        
+        db.delete(party)
+        db.commit()
+        
+        return StandardResponse[dict](
+            status=True,
+            data={"deleted_party_id": party_id},
+            error=None,
+            message="Political party deleted successfully"
+        )
+        
+    except Exception as e:
+        db.rollback()
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error deleting political party"
+        )
+
+# === CANDIDATE MANAGEMENT ===
+
+@router.put("/candidates/{candidate_id}", response_model=StandardResponse[dict])
+async def update_candidate(
+    candidate_id: int,
+    name: Optional[str] = Form(None),
+    bio: Optional[str] = Form(None),
+    party_id: Optional[int] = Form(None),
+    position_id: Optional[int] = Form(None),
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Update candidate (Admin only)"""
+    try:
+        candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+        if not candidate:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Candidate not found",
+                message="Candidate update failed"
+            )
+        
+        # Update fields if provided
+        if name:
+            candidate.name = name
+        if bio is not None:
+            candidate.bio = bio
+        if party_id:
+            # Verify party exists
+            party = db.query(PoliticalParty).filter(PoliticalParty.id == party_id).first()
+            if not party:
+                return StandardResponse[dict](
+                    status=False,
+                    data=None,
+                    error="Political party not found",
+                    message="Candidate update failed"
+                )
+            candidate.party_id = party_id
+        if position_id:
+            # Verify position exists
+            from app.models.models import Position
+            position = db.query(Position).filter(Position.id == position_id).first()
+            if not position:
+                return StandardResponse[dict](
+                    status=False,
+                    data=None,
+                    error="Position not found",
+                    message="Candidate update failed"
+                )
+            candidate.position_id = position_id
+        
+        db.commit()
+        db.refresh(candidate)
+        
+        return StandardResponse[dict](
+            status=True,
+            data={
+                "candidate_id": candidate.id,
+                "name": candidate.name,
+                "bio": candidate.bio,
+                "party_id": candidate.party_id,
+                "position_id": candidate.position_id
+            },
+            error=None,
+            message="Candidate updated successfully"
+        )
+        
+    except Exception as e:
+        db.rollback()
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error updating candidate"
+        )
+
+@router.delete("/candidates/{candidate_id}", response_model=StandardResponse[dict])
+async def delete_candidate(
+    candidate_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Delete candidate (Admin only)"""
+    try:
+        candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+        if not candidate:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Candidate not found",
+                message="Candidate deletion failed"
+            )
+        
+        # Check if candidate has votes
+        from app.models.models import Vote
+        votes = db.query(Vote).filter(Vote.candidate_id == candidate_id).count()
+        if votes > 0:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error=f"Cannot delete candidate with {votes} votes",
+                message="Candidate deletion failed"
+            )
+        
+        # Delete profile image if exists
+        if candidate.profile_image_url:
+            FileUploadService.delete_file(candidate.profile_image_url)
+        
+        db.delete(candidate)
+        db.commit()
+        
+        return StandardResponse[dict](
+            status=True,
+            data={"deleted_candidate_id": candidate_id},
+            error=None,
+            message="Candidate deleted successfully"
+        )
+        
+    except Exception as e:
+        db.rollback()
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error deleting candidate"
+        )
+
+# === ELECTION MANAGEMENT ===
+
+@router.put("/elections/{election_id}", response_model=StandardResponse[dict])
+async def update_election(
+    election_id: int,
+    title: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    election_type: Optional[str] = Form(None),
+    state: Optional[str] = Form(None),
+    is_active: Optional[bool] = Form(None),
+    start_date: Optional[datetime] = Form(None),
+    end_date: Optional[datetime] = Form(None),
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Update election (Admin only)"""
+    try:
+        election = db.query(Election).filter(Election.id == election_id).first()
+        if not election:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Election not found",
+                message="Election update failed"
+            )
+        
+        # Update fields if provided
+        if title:
+            election.title = title
+        if description is not None:
+            election.description = description
+        if election_type:
+            election.election_type = election_type
+        if state is not None:
+            election.state = state
+        if is_active is not None:
+            election.is_active = is_active
+        if start_date:
+            election.start_date = start_date
+        if end_date:
+            election.end_date = end_date
+        
+        # Validate dates
+        if election.start_date and election.end_date and election.start_date >= election.end_date:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="End date must be after start date",
+                message="Election update failed"
+            )
+        
+        db.commit()
+        db.refresh(election)
+        
+        return StandardResponse[dict](
+            status=True,
+            data={
+                "election_id": election.id,
+                "title": election.title,
+                "description": election.description,
+                "election_type": election.election_type,
+                "state": election.state,
+                "is_active": election.is_active,
+                "start_date": str(election.start_date) if election.start_date else None,
+                "end_date": str(election.end_date) if election.end_date else None
+            },
+            error=None,
+            message="Election updated successfully"
+        )
+        
+    except Exception as e:
+        db.rollback()
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error updating election"
+        )
+
+@router.delete("/elections/{election_id}", response_model=StandardResponse[dict])
+async def delete_election(
+    election_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Delete election (Admin only)"""
+    try:
+        election = db.query(Election).filter(Election.id == election_id).first()
+        if not election:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Election not found",
+                message="Election deletion failed"
+            )
+        
+        # Check if election has votes
+        from app.models.models import Vote
+        votes = db.query(Vote).filter(Vote.election_id == election_id).count()
+        if votes > 0:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error=f"Cannot delete election with {votes} votes",
+                message="Election deletion failed"
+            )
+        
+        # Delete associated positions and candidates
+        from app.models.models import Position
+        positions = db.query(Position).filter(Position.election_id == election_id).all()
+        for position in positions:
+            # Delete candidates for this position
+            candidates = db.query(Candidate).filter(Candidate.position_id == position.id).all()
+            for candidate in candidates:
+                if candidate.profile_image_url:
+                    FileUploadService.delete_file(candidate.profile_image_url)
+                db.delete(candidate)
+            db.delete(position)
+        
+        db.delete(election)
+        db.commit()
+        
+        return StandardResponse[dict](
+            status=True,
+            data={"deleted_election_id": election_id},
+            error=None,
+            message="Election deleted successfully"
+        )
+        
+    except Exception as e:
+        db.rollback()
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error deleting election"
+        )
+
+# === USER PROFILE IMAGE MANAGEMENT ===
+>>>>>>> e172cc0 (add the update features for users, candidates, elections, parties)
 
 @router.delete("/parties/{party_id}", response_model=StandardResponse[dict])
 async def delete_political_party(
