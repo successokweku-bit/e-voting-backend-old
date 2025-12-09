@@ -854,6 +854,7 @@ async def update_candidate(
     bio: Optional[str] = Form(None, description="Candidate biography"),
     party_id: Optional[int] = Form(None, description="Political party ID"),
     position_id: Optional[int] = Form(None, description="Position ID"),
+    election_id: Optional[int] = Form(None, description="Election ID"), 
     manifestos: Optional[str] = Form(None, description="JSON string of manifestos array"),
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
@@ -875,13 +876,13 @@ async def update_candidate(
         
         updated_fields = []
         
-        # Update bio if provided
-        if bio is not None:
+        # Update bio if provided and not empty
+        if bio is not None and bio.strip():
             candidate.bio = bio
             updated_fields.append("bio")
         
         # Update party if provided
-        if party_id:
+        if party_id is not None and party_id > 0:
             party = db.query(PoliticalParty).filter(PoliticalParty.id == party_id).first()
             if not party:
                 return StandardResponse[dict](
@@ -894,7 +895,7 @@ async def update_candidate(
             updated_fields.append("party")
         
         # Update position if provided
-        if position_id:
+        if position_id is not None and position_id > 0:
             from app.models.models import Position
             position = db.query(Position).filter(Position.id == position_id).first()
             if not position:
@@ -907,12 +908,24 @@ async def update_candidate(
             candidate.position_id = position_id
             updated_fields.append("position")
         
+        # Update election if provided (ADD THIS)
+        if election_id is not None and election_id > 0:
+            election = db.query(Election).filter(Election.id == election_id).first()
+            if not election:
+                return StandardResponse[dict](
+                    status=False,
+                    data=None,
+                    error="Election not found",
+                    message="Candidate update failed"
+                )
+            candidate.election_id = election_id
+            updated_fields.append("election")
+        
         # Update manifestos if provided
-        if manifestos is not None:
+        if manifestos is not None and manifestos.strip():
             try:
                 manifestos_list = json.loads(manifestos)
                 
-                # Validate manifesto structure
                 if not isinstance(manifestos_list, list):
                     return StandardResponse[dict](
                         status=False,
@@ -948,37 +961,46 @@ async def update_candidate(
                     message="Candidate update failed"
                 )
         
-        db.commit()
-        db.refresh(candidate)
+        # Only commit if there are changes
+        if updated_fields:
+            db.commit()
+            db.refresh(candidate)
+            message = f"Candidate updated successfully. Updated: {', '.join(updated_fields)}"
+        else:
+            message = "No changes detected. Candidate not updated."
         
         return StandardResponse[dict](
             status=True,
             data={
                 "candidate_id": candidate.id,
                 "user_id": candidate.user_id,
-                "user_name": candidate.user.full_name,
+                "user_name": candidate.user.full_name if candidate.user else None,
                 "bio": candidate.bio,
                 "party_id": candidate.party_id,
                 "party_name": candidate.party.name if candidate.party else None,
                 "position_id": candidate.position_id,
-                "position_title": candidate.position.title,
+                "position_title": candidate.position.title if candidate.position else None,
+                "election_id": candidate.election_id,  # ADD THIS
+                "election_title": candidate.election.title if candidate.election else None,  # ADD THIS
                 "manifestos": candidate.manifestos if candidate.manifestos else [],
                 "updated_fields": updated_fields
             },
             error=None,
-            message=f"Candidate updated successfully. Updated: {', '.join(updated_fields)}"
+            message=message
         )
         
     except Exception as e:
         db.rollback()
-        print(f"Error updating candidate: {str(e)}")  # DEBUG
+        print(f"❌ Error updating candidate: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return StandardResponse[dict](
             status=False,
             data=None,
             error=str(e),
             message="Error updating candidate"
         )
-
+    
 @router.delete("/candidates/{candidate_id}", response_model=StandardResponse[dict], summary="Delete Candidate")
 async def delete_candidate(
     candidate_id: int,
