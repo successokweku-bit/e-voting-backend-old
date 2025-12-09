@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
-from typing import Optional, List, Generic, TypeVar
+from typing import Optional, List, Generic, TypeVar, Any
 from datetime import datetime, date
 from enum import Enum
 
@@ -13,7 +13,7 @@ T = TypeVar("T")
 class StandardResponse(BaseModel, Generic[T]):
     status: bool
     data: Optional[T] = None
-    error: Optional[str] = None
+    error: Optional[Any] = None
     message: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -188,15 +188,24 @@ class ManifestoItem(BaseModel):
     description: str
 
 class CandidateCreate(CandidateBase):
+    user_id: int
     position_id: int
+    election_id: int          # Added election_id
     party_id: Optional[int] = None
+    manifestos: Optional[List[ManifestoItem]] = []
 
 class CandidateResponse(CandidateBase):
     id: int
+    user_id: int
     position_id: int
+    election_id: int
     party: Optional[PoliticalPartyResponse] = None
+    manifestos: Optional[List[ManifestoItem]] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+class CandidateWithVotes(CandidateResponse):
+    votes_count: int = 0
 
 class VoteRequest(BaseModel):
     candidate_id: int

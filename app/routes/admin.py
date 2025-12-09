@@ -4,11 +4,14 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.models.database import get_db
-from app.models.models import User, UserRole, PoliticalParty, Candidate, Election
-from app.schemas.schemas import UserResponse, StandardResponse, PoliticalPartyCreate, PoliticalPartyResponse
+from app.models.models import User, UserRole, PoliticalParty, Candidate, Election, Position
+from app.schemas.schemas import UserResponse, StandardResponse, PoliticalPartyCreate, PoliticalPartyResponse, CandidateCreate, CandidateResponse, StandardResponse
 from app.core.roles import get_current_admin, get_current_super_admin
 from app.core.security import get_password_hash
 from app.core.file_upload import FileUploadService
+
+from app.routes.auth import get_current_user
+from app.models.models import User as UserModel
 
 from typing import List, Optional
 import json
@@ -588,159 +591,87 @@ async def delete_political_party(
         )
 
 # === CANDIDATE MANAGEMENT ===
-@router.post("/candidates", response_model=StandardResponse[dict], summary="Create Candidate")
+@router.post("/candidates", response_model=StandardResponse[CandidateResponse])
 async def create_candidate(
-    user_id: int = Form(..., description="User ID of the candidate"),
-    bio: Optional[str] = Form(None, description="Candidate biography"),
-    party_id: Optional[int] = Form(None, description="Political party ID"),
-    position_id: int = Form(..., description="Position ID"),
-    manifestos: Optional[str] = Form(None, description="JSON string of manifestos array: [{\"title\": \"...\", \"description\": \"...\"}]"),
-    current_user: User = Depends(get_current_admin),
-    db: Session = Depends(get_db)
+    candidate_data: CandidateCreate,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
 ):
-    """
-    Create a new candidate from an existing user with manifestos.
-    
-    **Admin only** - Requires admin authentication.
-    
-    **Manifestos Format**: Send as JSON string array
-```json
-    [
-      {"title": "Education Reform", "description": "Improve schools..."},
-      {"title": "Healthcare", "description": "Better healthcare access..."}
-    ]
-```
-    """
+    """Create a new candidate"""
     try:
         # Check if user exists
-        user = db.query(User).filter(User.id == user_id).first()
+        user = db.query(User).filter(User.id == candidate_data.user_id).first()
         if not user:
-            return StandardResponse[dict](
+            return StandardResponse[CandidateResponse](
                 status=False,
                 data=None,
-                error="User not found",
-                message="Candidate creation failed"
+                error=f"User with id {candidate_data.user_id} does not exist",
+                message="Validation error"
             )
-        
-        # Check if user is already a candidate
-        existing_candidate = db.query(Candidate).filter(Candidate.user_id == user_id).first()
-        if existing_candidate:
-            return StandardResponse[dict](
-                status=False,
-                data=None,
-                error="User is already a candidate",
-                message="Candidate creation failed"
-            )
-        
-        # Verify position exists
-        from app.models.models import Position
-        position = db.query(Position).filter(Position.id == position_id).first()
+
+        # Check if position exists
+        position = db.query(Position).filter(Position.id == candidate_data.position_id).first()
         if not position:
-            return StandardResponse[dict](
+            return StandardResponse[CandidateResponse](
                 status=False,
                 data=None,
-                error="Position not found",
-                message="Candidate creation failed"
+                error=f"Position with id {candidate_data.position_id} does not exist",
+                message="Validation error"
             )
-        
-        # Verify party exists if provided
-        if party_id:
-            party = db.query(PoliticalParty).filter(PoliticalParty.id == party_id).first()
+
+        # Check if election exists
+        election = db.query(Election).filter(Election.id == candidate_data.election_id).first()
+        if not election:
+            return StandardResponse[CandidateResponse](
+                status=False,
+                data=None,
+                error=f"Election with id {candidate_data.election_id} does not exist",
+                message="Validation error"
+            )
+
+        # Optional: check if party exists
+        party = None
+        if candidate_data.party_id:
+            party = db.query(PoliticalParty).filter(PoliticalParty.id == candidate_data.party_id).first()
             if not party:
-                return StandardResponse[dict](
+                return StandardResponse[CandidateResponse](
                     status=False,
                     data=None,
-                    error="Political party not found",
-                    message="Candidate creation failed"
+                    error=f"Party with id {candidate_data.party_id} does not exist",
+                    message="Validation error"
                 )
-        
-        # Parse and validate manifestos
-        manifestos_list = []
-        if manifestos:
-            try:
-                manifestos_list = json.loads(manifestos)
-                
-                # Validate manifesto structure
-                if not isinstance(manifestos_list, list):
-                    return StandardResponse[dict](
-                        status=False,
-                        data=None,
-                        error="Manifestos must be an array",
-                        message="Candidate creation failed"
-                    )
-                
-                for idx, item in enumerate(manifestos_list):
-                    if not isinstance(item, dict):
-                        return StandardResponse[dict](
-                            status=False,
-                            data=None,
-                            error=f"Manifesto item {idx + 1} must be an object",
-                            message="Candidate creation failed"
-                        )
-                    if 'title' not in item or 'description' not in item:
-                        return StandardResponse[dict](
-                            status=False,
-                            data=None,
-                            error=f"Manifesto item {idx + 1} must have 'title' and 'description' fields",
-                            message="Candidate creation failed"
-                        )
-                    if not item['title'] or not item['description']:
-                        return StandardResponse[dict](
-                            status=False,
-                            data=None,
-                            error=f"Manifesto item {idx + 1} title and description cannot be empty",
-                            message="Candidate creation failed"
-                        )
-                        
-            except json.JSONDecodeError as e:
-                return StandardResponse[dict](
-                    status=False,
-                    data=None,
-                    error=f"Invalid JSON format for manifestos: {str(e)}",
-                    message="Candidate creation failed"
-                )
-        
+
         # Create candidate
         candidate = Candidate(
-            user_id=user_id,
-            bio=bio,
-            party_id=party_id,
-            position_id=position_id,
-            manifestos=manifestos_list
+            user_id=candidate_data.user_id,
+            position_id=candidate_data.position_id,
+            election_id=candidate_data.election_id,
+            party_id=candidate_data.party_id,
+            bio=candidate_data.bio,
+            name=candidate_data.name,
+            manifestos=[m.dict() for m in candidate_data.manifestos] if candidate_data.manifestos else []
         )
-        
+
         db.add(candidate)
         db.commit()
         db.refresh(candidate)
-        
-        return StandardResponse[dict](
+
+        candidate_response = CandidateResponse.model_validate(candidate)
+
+        return StandardResponse[CandidateResponse](
             status=True,
-            data={
-                "candidate_id": candidate.id,
-                "user_id": candidate.user_id,
-                "user_name": user.full_name,
-                "user_email": user.email,
-                "profile_image_url": user.profile_image_url,
-                "bio": candidate.bio,
-                "party_id": candidate.party_id,
-                "party_name": candidate.party.name if candidate.party else None,
-                "position_id": candidate.position_id,
-                "position_title": candidate.position.title,
-                "manifestos": candidate.manifestos,
-                "manifesto_count": len(candidate.manifestos) if candidate.manifestos else 0
-            },
+            data=candidate_response,
             error=None,
             message="Candidate created successfully"
         )
-        
+
     except Exception as e:
         db.rollback()
-        print(f"Error creating candidate: {str(e)}")  # DEBUG
-        return StandardResponse[dict](
+        return StandardResponse[CandidateResponse](
             status=False,
             data=None,
             error=str(e),
-            message="Error creating candidate"
+            message="Internal server error"
         )
 
 @router.get("/candidates", response_model=StandardResponse[List[dict]], summary="Get All Candidates")

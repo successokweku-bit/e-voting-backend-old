@@ -65,7 +65,7 @@ class ElectionType(enum.Enum):
     LOCAL = "local"
 
 # -------------------------
-# MODELS
+# EXISTING MODELS
 # -------------------------
 
 class PoliticalParty(Base):
@@ -88,12 +88,10 @@ class User(Base):
     nin = Column(String(20), unique=True, index=True, nullable=False)
     email = Column(String(255), unique=True, index=True, nullable=False)
     full_name = Column(String(255), nullable=False)
-    # first_name = Column(String(255), nullable=False)
-    # last_name = Column(String(255), nullable=False)
     state_of_residence = Column(
         Enum(
             State,
-            values_callable=lambda obj: [e.value for e in obj],  # use .value
+            values_callable=lambda obj: [e.value for e in obj],
             native_enum=False
         ),
         nullable=False
@@ -105,7 +103,7 @@ class User(Base):
     role = Column(
         Enum(
             UserRole,
-            values_callable=lambda obj: [e.value for e in obj],  # use .value
+            values_callable=lambda obj: [e.value for e in obj],
             native_enum=False
         ),
         default=UserRole.USER.value,
@@ -163,7 +161,8 @@ class Election(Base):
 
     positions = relationship("Position", back_populates="election")
     votes = relationship("Vote", back_populates="election")
-
+    encrypted_votes = relationship("EncryptedVote", back_populates="election")  # NEW
+    candidates = relationship("Candidate", back_populates="election")
 
 class Position(Base):
     __tablename__ = "positions"
@@ -183,15 +182,18 @@ class Candidate(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
-    bio = Column(Text)
-    party_id = Column(Integer, ForeignKey("political_parties.id", ondelete="SET NULL"), nullable=True)
+    election_id = Column(Integer, ForeignKey("elections.id", ondelete="CASCADE"), nullable=False)
     position_id = Column(Integer, ForeignKey("positions.id", ondelete="CASCADE"), nullable=False)
+    party_id = Column(Integer, ForeignKey("political_parties.id", ondelete="SET NULL"), nullable=True)
+    bio = Column(Text, nullable=True)
     manifestos = Column(JSON, nullable=True, default=list)
-    
+
+    # Relationships
     user = relationship("User")
+    election = relationship("Election", back_populates="candidates")
     position = relationship("Position", back_populates="candidates")
-    votes = relationship("Vote", back_populates="candidate")
     party = relationship("PoliticalParty")
+    votes = relationship("Vote", back_populates="candidate")
 
 class Vote(Base):
     __tablename__ = "votes"
@@ -210,3 +212,209 @@ class Vote(Base):
     user = relationship("User")
     candidate = relationship("Candidate", back_populates="votes")
     election = relationship("Election", back_populates="votes")
+
+
+# ==================== NEW SECURE VOTING MODELS ====================
+
+class EncryptedVote(Base):
+    """
+    Stores encrypted votes with anonymization and integrity verification
+    """
+    __tablename__ = "encrypted_votes"
+    __table_args__ = {'extend_existing': True}
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Anonymized voter ID (cannot be traced back to user)
+    anonymous_voter_id = Column(String(64), nullable=False, index=True)
+    
+    # Election reference
+    election_id = Column(Integer, ForeignKey("elections.id"), nullable=False)
+    
+    # Position reference (for your multi-position elections)
+    position_id = Column(Integer, ForeignKey("positions.id"), nullable=False)
+    
+    # Candidate reference (for tallying)
+    candidate_id = Column(Integer, ForeignKey("candidates.id"), nullable=False)
+    
+    # Encrypted vote data (contains user_id, candidate_id internally)
+    encrypted_vote_data = Column(Text, nullable=False)
+    
+    # Integrity verification
+    vote_hash = Column(String(64), nullable=False, unique=True, index=True)
+    
+    # Receipt for voter verification
+    vote_receipt = Column(String(20), nullable=False, unique=True, index=True)
+    receipt_hash = Column(String(64), nullable=False, unique=True)
+    
+    # Zero-knowledge commitment
+    commitment_hash = Column(String(64), nullable=False)
+    
+    # Metadata
+    cast_at = Column(DateTime(timezone=True), default=func.now, nullable=False)
+    
+    # Verification status (set during tallying)
+    verified = Column(Boolean, default=False)
+    tallied = Column(Boolean, default=False)
+    
+    # Relationships
+    election = relationship("Election", back_populates="encrypted_votes")
+    position = relationship("Position")
+    candidate = relationship("Candidate")
+    
+    def __repr__(self):
+        return f"<EncryptedVote(id={self.id}, election={self.election_id}, receipt={self.vote_receipt})>"
+
+
+class VoteCommitment(Base):
+    """
+    Stores commitment factors separately for zero-knowledge proofs
+    Only accessible to super admin during tallying
+    """
+    __tablename__ = "vote_commitments"
+    __table_args__ = {'extend_existing': True}
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Links to encrypted vote (but stored separately)
+    vote_hash = Column(String(64), ForeignKey("encrypted_votes.vote_hash"), nullable=False, unique=True)
+    
+    # Commitment factor (random string used in commitment)
+    commitment_factor = Column(String(64), nullable=False)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), default=func.now, nullable=False)
+    
+    def __repr__(self):
+        return f"<VoteCommitment(vote_hash={self.vote_hash[:16]}...)>"
+
+
+class AuditLog(Base):
+    """
+    Immutable audit trail with blockchain-style hash chaining
+    """
+    __tablename__ = "audit_logs"
+    __table_args__ = {'extend_existing': True}
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Action performed
+    action = Column(String(100), nullable=False, index=True)
+    
+    # User who performed action
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    
+    # Action details (JSON string)
+    details = Column(Text, nullable=True)
+    
+    # Hash chaining (blockchain-style)
+    previous_hash = Column(String(64), nullable=True)
+    current_hash = Column(String(64), nullable=False, unique=True, index=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), default=func.now, nullable=False)
+    
+    # IP address and user agent
+    ip_address = Column(String(45), nullable=True)
+    user_agent = Column(String(255), nullable=True)
+    
+    # Relationships
+    user = relationship("User")
+    
+    def __repr__(self):
+        return f"<AuditLog(id={self.id}, action={self.action}, user={self.user_id})>"
+
+
+class VoteVerification(Base):
+    """
+    Records when voters verify their vote receipts
+    """
+    __tablename__ = "vote_verifications"
+    __table_args__ = {'extend_existing': True}
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Receipt being verified
+    vote_receipt = Column(String(20), ForeignKey("encrypted_votes.vote_receipt"), nullable=False)
+    
+    # Verification details
+    verified_at = Column(DateTime(timezone=True), default=func.now, nullable=False)
+    ip_address = Column(String(45), nullable=True)
+    
+    # Result
+    verification_successful = Column(Boolean, default=True)
+    
+    def __repr__(self):
+        return f"<VoteVerification(receipt={self.vote_receipt}, verified_at={self.verified_at})>"
+
+
+class UserSession(Base):
+    """
+    Track user sessions for security (can revoke all sessions)
+    """
+    __tablename__ = "user_sessions"
+    __table_args__ = {'extend_existing': True}
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # User reference
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # Session token (JWT ID)
+    jti = Column(String(36), nullable=False, unique=True, index=True)
+    
+    # Session details
+    created_at = Column(DateTime(timezone=True), default=func.now, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    last_activity = Column(DateTime(timezone=True), default=func.now, nullable=False)
+    
+    # Device info
+    ip_address = Column(String(45), nullable=True)
+    user_agent = Column(String(255), nullable=True)
+    
+    # Status
+    is_active = Column(Boolean, default=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Relationships
+    user = relationship("User")
+    
+    def __repr__(self):
+        return f"<UserSession(user={self.user_id}, jti={self.jti[:8]}...)>"
+
+
+class ElectionTally(Base):
+    """
+    Records when elections are tallied (for audit trail)
+    """
+    __tablename__ = "election_tallies"
+    __table_args__ = {'extend_existing': True}
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Election reference
+    election_id = Column(Integer, ForeignKey("elections.id"), nullable=False)
+    
+    # Who performed the tally
+    tallied_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # When
+    tallied_at = Column(DateTime(timezone=True), default=func.now, nullable=False)
+    
+    # Results summary (JSON string)
+    results_summary = Column(Text, nullable=True)
+    
+    # Verification
+    total_votes_decrypted = Column(Integer, default=0)
+    total_votes_verified = Column(Integer, default=0)
+    integrity_check_passed = Column(Boolean, default=True)
+    
+    # Audit trail hash
+    audit_hash = Column(String(64), nullable=False, unique=True)
+    
+    # Relationships
+    election = relationship("Election")
+    tally_admin = relationship("User")
+    
+    def __repr__(self):
+        return f"<ElectionTally(election={self.election_id}, by={self.tallied_by}, at={self.tallied_at})>"
