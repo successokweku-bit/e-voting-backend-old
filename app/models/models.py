@@ -1,13 +1,11 @@
 from sqlalchemy import (
-    Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Enum, UniqueConstraint
+    Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Enum, UniqueConstraint, JSON
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
+from datetime import datetime
 import enum
-from datetime import datetime 
-from sqlalchemy.dialects.postgresql import ARRAY
-from sqlalchemy import JSON
 
 Base = declarative_base()
 
@@ -65,7 +63,7 @@ class ElectionType(enum.Enum):
     LOCAL = "local"
 
 # -------------------------
-# EXISTING MODELS
+# MODELS
 # -------------------------
 
 class PoliticalParty(Base):
@@ -79,6 +77,10 @@ class PoliticalParty(Base):
     description = Column(Text, nullable=True)
     founded_date = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    candidates = relationship("Candidate", back_populates="party")
+
 
 class User(Base):
     __tablename__ = "users"
@@ -96,10 +98,8 @@ class User(Base):
         ),
         nullable=False
     )
-
     profile_image_url = Column(String(500), nullable=True)
     hashed_password = Column(String(255), nullable=False)
-
     role = Column(
         Enum(
             UserRole,
@@ -109,12 +109,19 @@ class User(Base):
         default=UserRole.USER.value,
         nullable=False
     )
-
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
     date_of_birth = Column(DateTime(timezone=True), nullable=True)
     registration_date = Column(DateTime(timezone=True), server_default=func.now())
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    votes = relationship("Vote", back_populates="user")
+    candidates = relationship("Candidate", back_populates="user")
+    audit_logs = relationship("AuditLog", back_populates="user")
+    sessions = relationship("UserSession", back_populates="user")
+    tallies = relationship("ElectionTally", back_populates="tally_admin")
+
 
 class OTP(Base):
     __tablename__ = "otps"
@@ -135,7 +142,6 @@ class Election(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
     description = Column(Text)
-    
     election_type = Column(
         Enum(
             ElectionType,
@@ -144,7 +150,6 @@ class Election(Base):
         ),
         nullable=False
     )
-
     state = Column(
         Enum(
             State,
@@ -153,16 +158,18 @@ class Election(Base):
         ),
         nullable=True
     )
-
     is_active = Column(Boolean, default=False)
     start_date = Column(DateTime(timezone=True))
     end_date = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Relationships
     positions = relationship("Position", back_populates="election")
     votes = relationship("Vote", back_populates="election")
-    encrypted_votes = relationship("EncryptedVote", back_populates="election")  # NEW
+    encrypted_votes = relationship("EncryptedVote", back_populates="election")
     candidates = relationship("Candidate", back_populates="election")
+    tallies = relationship("ElectionTally", back_populates="election")
+
 
 class Position(Base):
     __tablename__ = "positions"
@@ -173,15 +180,21 @@ class Position(Base):
     description = Column(Text)
     election_id = Column(Integer, ForeignKey("elections.id"), nullable=False)
 
+    # Relationships
     election = relationship("Election", back_populates="positions")
     candidates = relationship("Candidate", back_populates="position")
+    encrypted_votes = relationship("EncryptedVote", back_populates="position")
+
 
 class Candidate(Base):
     __tablename__ = "candidates"
-    __table_args__ = {'extend_existing': True}
+    __table_args__ = (
+        UniqueConstraint('user_id', 'position_id', 'election_id', name='unique_candidate_per_position_election'),
+        {'extend_existing': True}
+    )
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     election_id = Column(Integer, ForeignKey("elections.id", ondelete="CASCADE"), nullable=False)
     position_id = Column(Integer, ForeignKey("positions.id", ondelete="CASCADE"), nullable=False)
     party_id = Column(Integer, ForeignKey("political_parties.id", ondelete="SET NULL"), nullable=True)
@@ -189,11 +202,13 @@ class Candidate(Base):
     manifestos = Column(JSON, nullable=True, default=list)
 
     # Relationships
-    user = relationship("User")
+    user = relationship("User", back_populates="candidates")
     election = relationship("Election", back_populates="candidates")
     position = relationship("Position", back_populates="candidates")
-    party = relationship("PoliticalParty")
+    party = relationship("PoliticalParty", back_populates="candidates")
     votes = relationship("Vote", back_populates="candidate")
+    encrypted_votes = relationship("EncryptedVote", back_populates="candidate")
+
 
 class Vote(Base):
     __tablename__ = "votes"
@@ -209,12 +224,13 @@ class Vote(Base):
     encrypted_vote = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    user = relationship("User")
+    # Relationships
+    user = relationship("User", back_populates="votes")
     candidate = relationship("Candidate", back_populates="votes")
     election = relationship("Election", back_populates="votes")
 
 
-# ==================== NEW SECURE VOTING MODELS ====================
+# ==================== SECURE VOTING MODELS ====================
 
 class EncryptedVote(Base):
     """
@@ -259,8 +275,10 @@ class EncryptedVote(Base):
     
     # Relationships
     election = relationship("Election", back_populates="encrypted_votes")
-    position = relationship("Position")
-    candidate = relationship("Candidate")
+    position = relationship("Position", back_populates="encrypted_votes")
+    candidate = relationship("Candidate", back_populates="encrypted_votes")
+    commitment = relationship("VoteCommitment", back_populates="encrypted_vote", uselist=False)
+    verifications = relationship("VoteVerification", back_populates="encrypted_vote")
     
     def __repr__(self):
         return f"<EncryptedVote(id={self.id}, election={self.election_id}, receipt={self.vote_receipt})>"
@@ -284,6 +302,9 @@ class VoteCommitment(Base):
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), default=func.now, nullable=False)
+    
+    # Relationships
+    encrypted_vote = relationship("EncryptedVote", back_populates="commitment")
     
     def __repr__(self):
         return f"<VoteCommitment(vote_hash={self.vote_hash[:16]}...)>"
@@ -319,7 +340,7 @@ class AuditLog(Base):
     user_agent = Column(String(255), nullable=True)
     
     # Relationships
-    user = relationship("User")
+    user = relationship("User", back_populates="audit_logs")
     
     def __repr__(self):
         return f"<AuditLog(id={self.id}, action={self.action}, user={self.user_id})>"
@@ -343,6 +364,9 @@ class VoteVerification(Base):
     
     # Result
     verification_successful = Column(Boolean, default=True)
+    
+    # Relationships
+    encrypted_vote = relationship("EncryptedVote", back_populates="verifications")
     
     def __repr__(self):
         return f"<VoteVerification(receipt={self.vote_receipt}, verified_at={self.verified_at})>"
@@ -377,7 +401,7 @@ class UserSession(Base):
     revoked_at = Column(DateTime(timezone=True), nullable=True)
     
     # Relationships
-    user = relationship("User")
+    user = relationship("User", back_populates="sessions")
     
     def __repr__(self):
         return f"<UserSession(user={self.user_id}, jti={self.jti[:8]}...)>"
@@ -413,8 +437,8 @@ class ElectionTally(Base):
     audit_hash = Column(String(64), nullable=False, unique=True)
     
     # Relationships
-    election = relationship("Election")
-    tally_admin = relationship("User")
+    election = relationship("Election", back_populates="tallies")
+    tally_admin = relationship("User", back_populates="tallies")
     
     def __repr__(self):
         return f"<ElectionTally(election={self.election_id}, by={self.tallied_by}, at={self.tallied_at})>"

@@ -187,20 +187,35 @@ class ManifestoItem(BaseModel):
     title: str
     description: str
 
-class CandidateCreate(CandidateBase):
-    user_id: int
-    position_id: int
-    election_id: int          # Added election_id
-    party_id: Optional[int] = None
-    manifestos: Optional[List[ManifestoItem]] = []
-
-class CandidateResponse(CandidateBase):
-    id: int
+class CandidateCreate(BaseModel):
     user_id: int
     position_id: int
     election_id: int
-    party: Optional[PoliticalPartyResponse] = None
+    party_id: Optional[int] = None
+    bio: Optional[str] = None
     manifestos: Optional[List[ManifestoItem]] = []
+
+
+# class CandidateResponse(CandidateBase):
+#     id: int
+#     user_id: int
+#     position_id: int
+#     election_id: int
+#     party: Optional[PoliticalPartyResponse] = None
+#     manifestos: Optional[List[ManifestoItem]] = []
+
+#     model_config = ConfigDict(from_attributes=True)
+
+
+class CandidateResponse(BaseModel):
+    id: int
+    user_id: int
+    name: str  # From User table
+    position_id: int
+    party_id: Optional[int]
+    bio: Optional[str]
+    manifestos: Optional[List[dict]]
+    election: Optional[ElectionInfo]
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -247,5 +262,17 @@ class ElectionResultsDetailed(BaseModel):
     party_results: List[PartyResults]
     total_votes: int
     voter_turnout: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ElectionInfo(BaseModel):
+    id: int
+    title: str
+    description: Optional[str]
+    election_type: Optional[str]
+    state: Optional[str]
+    start_date: Optional[datetime]
+    end_date: Optional[datetime]
 
     model_config = ConfigDict(from_attributes=True)

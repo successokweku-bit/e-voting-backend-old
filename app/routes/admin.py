@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from app.models.database import get_db
 from app.models.models import User, UserRole, PoliticalParty, Candidate, Election, Position
-from app.schemas.schemas import UserResponse, StandardResponse, PoliticalPartyCreate, PoliticalPartyResponse, CandidateCreate, CandidateResponse, StandardResponse
+from app.schemas.schemas import UserResponse, StandardResponse, PoliticalPartyCreate, PoliticalPartyResponse,ElectionInfo, CandidateCreate, CandidateResponse, StandardResponse
 from app.core.roles import get_current_admin, get_current_super_admin
 from app.core.security import get_password_hash
 from app.core.file_upload import FileUploadService
@@ -595,11 +595,11 @@ async def delete_political_party(
 async def create_candidate(
     candidate_data: CandidateCreate,
     db: Session = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
     """Create a new candidate"""
     try:
-        # Check if user exists
+        # Check user existence
         user = db.query(User).filter(User.id == candidate_data.user_id).first()
         if not user:
             return StandardResponse[CandidateResponse](
@@ -609,7 +609,7 @@ async def create_candidate(
                 message="Validation error"
             )
 
-        # Check if position exists
+        # Check position
         position = db.query(Position).filter(Position.id == candidate_data.position_id).first()
         if not position:
             return StandardResponse[CandidateResponse](
@@ -619,7 +619,7 @@ async def create_candidate(
                 message="Validation error"
             )
 
-        # Check if election exists
+        # Check election
         election = db.query(Election).filter(Election.id == candidate_data.election_id).first()
         if not election:
             return StandardResponse[CandidateResponse](
@@ -629,7 +629,22 @@ async def create_candidate(
                 message="Validation error"
             )
 
-        # Optional: check if party exists
+        # CHECK IF CANDIDATE ALREADY EXISTS
+        existing_candidate = db.query(Candidate).filter(
+            Candidate.user_id == candidate_data.user_id,
+            Candidate.position_id == candidate_data.position_id,
+            Candidate.election_id == candidate_data.election_id
+        ).first()
+        
+        if existing_candidate:
+            return StandardResponse[CandidateResponse](
+                status=False,
+                data=None,
+                error=f"User {user.full_name} is already a candidate for this position in this election",
+                message="Duplicate candidate"
+            )
+
+        # Optional: check party
         party = None
         if candidate_data.party_id:
             party = db.query(PoliticalParty).filter(PoliticalParty.id == candidate_data.party_id).first()
@@ -648,7 +663,6 @@ async def create_candidate(
             election_id=candidate_data.election_id,
             party_id=candidate_data.party_id,
             bio=candidate_data.bio,
-            name=candidate_data.name,
             manifestos=[m.dict() for m in candidate_data.manifestos] if candidate_data.manifestos else []
         )
 
@@ -656,7 +670,17 @@ async def create_candidate(
         db.commit()
         db.refresh(candidate)
 
-        candidate_response = CandidateResponse.model_validate(candidate)
+        # Prepare response
+        candidate_response = CandidateResponse(
+            id=candidate.id,
+            user_id=user.id,
+            name=user.full_name,
+            position_id=candidate.position_id,
+            party_id=candidate.party_id,
+            bio=candidate.bio,
+            manifestos=candidate.manifestos,
+            election=ElectionInfo.from_orm(election)
+        )
 
         return StandardResponse[CandidateResponse](
             status=True,
@@ -673,7 +697,7 @@ async def create_candidate(
             error=str(e),
             message="Internal server error"
         )
-
+    
 @router.get("/candidates", response_model=StandardResponse[List[dict]], summary="Get All Candidates")
 async def get_all_candidates(
     position_id: Optional[int] = Query(None, description="Filter by position ID"),
