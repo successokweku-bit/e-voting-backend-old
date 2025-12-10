@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from sqlalchemy import func
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.models.database import get_db
 from app.models.models import Election, Position, Candidate, Vote, User, State, ElectionType, PoliticalParty
@@ -455,6 +455,38 @@ async def get_all_parties_public(db: Session = Depends(get_db)):
             message="Error retrieving political parties"
         )
     
+@router.get("/parties/{party_id}", response_model=StandardResponse[PoliticalPartyResponse])
+async def get_party_by_id(party_id: int, db: Session = Depends(get_db)):
+    """Fetch a single political party by ID"""
+    try:
+        party = db.query(PoliticalParty).filter(PoliticalParty.id == party_id).first()
+
+        if not party:
+            return StandardResponse[PoliticalPartyResponse](
+                status=False,
+                data=None,
+                error="Party not found",
+                message=f"No political party found with ID {party_id}"
+            )
+
+        party_response = PoliticalPartyResponse.model_validate(party)
+
+        return StandardResponse[PoliticalPartyResponse](
+            status=True,
+            data=party_response,
+            error=None,
+            message="Party retrieved successfully"
+        )
+
+    except Exception as e:
+        return StandardResponse[PoliticalPartyResponse](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error retrieving political party"
+        )
+
+
 # ==================== SECURE VOTING ENDPOINTS ====================
 # Add these routes to your existing router
 
@@ -777,3 +809,47 @@ async def get_secure_election_statistics(
             error=str(e),
             message="Failed to get statistics"
         )
+    
+
+# ================================
+# GET UPCOMING ELECTIONS
+# ================================
+@router.get("/upcoming", response_model=StandardResponse)
+def get_upcoming_elections(db: Session = Depends(get_db)):
+
+    now = datetime.now(timezone.utc)
+
+    elections = (
+        db.query(Election)
+        .filter(Election.start_date > now)
+        .order_by(Election.start_date.asc())
+        .all()
+    )
+
+    return StandardResponse(
+        status="success",
+        message="Upcoming elections retrieved successfully",
+        data=elections
+    )
+
+
+# ================================
+# GET PAST ELECTIONS
+# ================================
+@router.get("/past", response_model=StandardResponse)
+def get_past_elections(db: Session = Depends(get_db)):
+
+    now = datetime.now(timezone.utc)
+
+    elections = (
+        db.query(Election)
+        .filter(Election.end_date < now)
+        .order_by(Election.end_date.desc())
+        .all()
+    )
+
+    return StandardResponse(
+        status="success",
+        message="Past elections retrieved successfully",
+        data=elections
+    )
