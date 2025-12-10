@@ -1370,7 +1370,7 @@ async def create_election(
                 "election_id": election.id,
                 "title": election.title,
                 "description": election.description,
-                "election_type": election.election_type.value if isinstance(election.election_type, ElectionTypeEnum) else str(election.election_type),
+                "election_type": election.election_type.value if isinstance(election.election_type, ElectionType) else str(election.election_type),
                 "state": election.state.value if election.state is not None else None,
                 "is_active": election.is_active,
                 "start_date": election.start_date.isoformat() if election.start_date else None,
