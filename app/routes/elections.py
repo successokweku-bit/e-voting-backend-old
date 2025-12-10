@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from sqlalchemy import func
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.models.database import get_db
 from app.models.models import Election, Position, Candidate, Vote, User, State, ElectionType, PoliticalParty
@@ -777,3 +777,47 @@ async def get_secure_election_statistics(
             error=str(e),
             message="Failed to get statistics"
         )
+    
+
+# ================================
+# GET UPCOMING ELECTIONS
+# ================================
+@router.get("/upcoming", response_model=StandardResponse)
+def get_upcoming_elections(db: Session = Depends(get_db)):
+
+    now = datetime.now(timezone.utc)
+
+    elections = (
+        db.query(Election)
+        .filter(Election.start_date > now)
+        .order_by(Election.start_date.asc())
+        .all()
+    )
+
+    return StandardResponse(
+        status="success",
+        message="Upcoming elections retrieved successfully",
+        data=elections
+    )
+
+
+# ================================
+# GET PAST ELECTIONS
+# ================================
+@router.get("/past", response_model=StandardResponse)
+def get_past_elections(db: Session = Depends(get_db)):
+
+    now = datetime.now(timezone.utc)
+
+    elections = (
+        db.query(Election)
+        .filter(Election.end_date < now)
+        .order_by(Election.end_date.desc())
+        .all()
+    )
+
+    return StandardResponse(
+        status="success",
+        message="Past elections retrieved successfully",
+        data=elections
+    )
