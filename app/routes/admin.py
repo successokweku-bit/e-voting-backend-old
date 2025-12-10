@@ -1260,126 +1260,99 @@ async def get_election_by_id(
 #         )
     
 
-@router.post("/elections", response_model=StandardResponse[dict], summary="Create Election")
+@router.post(
+    "/elections",
+    response_model=StandardResponse[dict],
+    summary="Create Election"
+)
 async def create_election(
-    title: str = Form(..., description="Election title"),
-    description: Optional[str] = Form(None, description="Election description"),
-    election_type: str = Form(..., description="Type of election: federal, state, or local"),
-    state: Optional[str] = Form(None, description="State name (for state/local elections)"),
-    is_active: bool = Form(False, description="Active status"),
-    start_date: Optional[str] = Form(None, description="Start date (YYYY-MM-DD)"),
-    end_date: Optional[str] = Form(None, description="End date (YYYY-MM-DD)"),
+    title: str = Form(...),
+    description: Optional[str] = Form(None),
+    election_type: str = Form(...),
+    state: Optional[str] = Form(None),
+    is_active: str = Form("false"),   # Coming as string from frontend
+    start_date: Optional[str] = Form(None),
+    end_date: Optional[str] = Form(None),
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """
-    Create a new election.
-    
-    **Admin only** - Requires admin authentication.
-    
-    **Election Types**: federal, state, local
-    **States**: Use full state names like "Lagos", "Abuja", etc.
-    """
     try:
-        # DEBUG: Print received data
-        print(f"🔍 CREATE ELECTION REQUEST")
-        print(f"  Title: {title}")
-        print(f"  Description: {description}")
-        print(f"  Election Type: {election_type}")
-        print(f"  State: {state}")
-        print(f"  Is Active: {is_active}")
-        print(f"  Start Date: {start_date}")
-        print(f"  End Date: {end_date}")
-        
+        print("\n🔍 Received Election Creation Request")
+        print("Title:", title)
+        print("Description:", description)
+        print("Election Type:", election_type)
+        print("State:", state)
+        print("is_active (raw):", is_active)
+        print("Start:", start_date)
+        print("End:", end_date)
+
+        # 🔥 Convert is_active string → boolean
+        is_active_bool = is_active.lower() == "true"
+
+        # --- Validate election type ---
         from app.models.models import ElectionType, State as StateEnum
-        
-        # Validate and convert election_type to enum
-        valid_election_types = [e.value for e in ElectionType]
-        if election_type.lower() not in valid_election_types:
-            return StandardResponse[dict](
+
+        valid_types = [e.value for e in ElectionType]
+        if election_type.lower() not in valid_types:
+            return StandardResponse(
                 status=False,
                 data=None,
-                error=f"Invalid election type. Must be one of: {', '.join(valid_election_types)}",
+                error=f"Invalid election type. Must be {valid_types}",
                 message="Election creation failed"
             )
-        
-        # Validate state if provided
+
+        # --- Validate state ---
         validated_state = None
-        if state:
+        if state and state != "":
             valid_states = [s.value for s in StateEnum]
             if state not in valid_states:
-                return StandardResponse[dict](
+                return StandardResponse(
                     status=False,
                     data=None,
-                    error=f"Invalid state. Must be one of: {', '.join(valid_states)}",
+                    error=f"Invalid state. Must be one of {valid_states}",
                     message="Election creation failed"
                 )
             validated_state = state
-        
-        # Parse dates if provided
-        parsed_start_date = None
-        parsed_end_date = None
-        
-        if start_date:
+
+        # --- Parse dates safely ---
+        def parse_date(date_str):
+            if not date_str or date_str.strip() == "":
+                return None
             try:
-                parsed_start_date = datetime.strptime(start_date, "%Y-%m-%d")
-            except ValueError:
-                return StandardResponse[dict](
-                    status=False,
-                    data=None,
-                    error="Invalid start date format. Use YYYY-MM-DD",
-                    message="Election creation failed"
-                )
-        
-        if end_date:
-            try:
-                parsed_end_date = datetime.strptime(end_date, "%Y-%m-%d")
-            except ValueError:
-                return StandardResponse[dict](
-                    status=False,
-                    data=None,
-                    error="Invalid end date format. Use YYYY-MM-DD",
-                    message="Election creation failed"
-                )
-        
-        # Validate dates
-        if parsed_start_date and parsed_end_date and parsed_start_date >= parsed_end_date:
-            return StandardResponse[dict](
+                return datetime.strptime(date_str, "%Y-%m-%d")
+            except:
+                return None  # Avoid crashing the response model
+
+        parsed_start = parse_date(start_date)
+        parsed_end = parse_date(end_date)
+
+        # --- Validate date ordering ---
+        if parsed_start and parsed_end and parsed_start >= parsed_end:
+            return StandardResponse(
                 status=False,
                 data=None,
                 error="End date must be after start date",
                 message="Election creation failed"
             )
-        
-        # Validate title is not empty
-        if not title or not title.strip():
-            return StandardResponse[dict](
-                status=False,
-                data=None,
-                error="Election title cannot be empty",
-                message="Election creation failed"
-            )
-        
-        # Create election
+
+        # --- Save election ---
         election = Election(
             title=title.strip(),
             description=description.strip() if description else None,
-            election_type=election_type.lower(),  # Store as lowercase enum value
+            election_type=election_type.lower(),
             state=validated_state,
-            is_active=is_active,
-            start_date=parsed_start_date,
-            end_date=parsed_end_date
+            is_active=is_active_bool,
+            start_date=parsed_start,
+            end_date=parsed_end
         )
-        
-        print(f"📝 Creating election: {election.title}")
-        
+
         db.add(election)
         db.commit()
         db.refresh(election)
-        
-        print(f"✅ Election created successfully with ID: {election.id}")
-        
-        return StandardResponse[dict](
+
+        print("✅ Election created with ID:", election.id)
+
+        return StandardResponse(
             status=True,
             data={
                 "election_id": election.id,
@@ -1394,18 +1367,19 @@ async def create_election(
             error=None,
             message="Election created successfully"
         )
-        
+
     except Exception as e:
         db.rollback()
-        print(f"❌ Error creating election: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return StandardResponse[dict](
+        print("❌ Backend Error:", e)
+
+        # 🔥 Always return a valid StandardResponse
+        return StandardResponse(
             status=False,
             data=None,
             error=str(e),
             message="Error creating election"
         )
+
     
 @router.put("/elections/{election_id}", response_model=StandardResponse[dict])
 async def update_election(
