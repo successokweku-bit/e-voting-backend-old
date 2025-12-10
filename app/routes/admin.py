@@ -456,6 +456,37 @@ async def get_all_parties(
             message="Error retrieving political parties"
         )
 
+@router.get("/parties/{party_id}", response_model=StandardResponse[PoliticalPartyResponse])
+async def get_party_by_id(party_id: int, db: Session = Depends(get_db)):
+    """Fetch a single political party by ID"""
+    try:
+        party = db.query(PoliticalParty).filter(PoliticalParty.id == party_id).first()
+
+        if not party:
+            return StandardResponse[PoliticalPartyResponse](
+                status=False,
+                data=None,
+                error="Party not found",
+                message=f"No political party found with ID {party_id}"
+            )
+
+        party_response = PoliticalPartyResponse.model_validate(party)
+
+        return StandardResponse[PoliticalPartyResponse](
+            status=True,
+            data=party_response,
+            error=None,
+            message="Party retrieved successfully"
+        )
+
+    except Exception as e:
+        return StandardResponse[PoliticalPartyResponse](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error retrieving political party"
+        )
+
 @router.put("/parties/{party_id}", response_model=StandardResponse[PoliticalPartyResponse])
 async def update_political_party(
     party_id: int,
