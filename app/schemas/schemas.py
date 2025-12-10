@@ -10,13 +10,25 @@ T = TypeVar("T")
 # -------------------------
 # STANDARD RESPONSE
 # -------------------------
+# class StandardResponse(BaseModel, Generic[T]):
+#     status: bool
+#     data: Optional[T] = None
+#     error: Optional[Any] = None
+#     message: Optional[str] = None
+
+#     model_config = ConfigDict(from_attributes=True)
+
+
 class StandardResponse(BaseModel, Generic[T]):
     status: bool
     data: Optional[T] = None
     error: Optional[Any] = None
     message: Optional[str] = None
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        from_attributes=True
+    )
 
 # -------------------------
 # POLITICAL PARTY SCHEMAS
