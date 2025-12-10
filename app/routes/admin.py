@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.models.database import get_db
-from app.models.models import User, UserRole, PoliticalParty, Candidate, Election, Position
+from app.models.models import User, UserRole, PoliticalParty, Candidate, Election, Position, ElectionType, State
 from app.schemas.schemas import UserResponse, StandardResponse, PoliticalPartyCreate, PoliticalPartyResponse,ElectionInfo, CandidateCreate, CandidateResponse, StandardResponse
 from app.core.roles import get_current_admin, get_current_super_admin
 from app.core.security import get_password_hash
@@ -1260,73 +1260,76 @@ async def get_election_by_id(
 #         )
     
 
-@router.post(
-    "/elections",
-    response_model=StandardResponse[dict],
-    summary="Create Election"
-)
+@router.post("/elections", response_model=StandardResponse[dict], summary="Create Election")
 async def create_election(
-    title: str = Form(...),
-    description: Optional[str] = Form(None),
-    election_type: str = Form(...),
-    state: Optional[str] = Form(None),
-    is_active: str = Form("false"),   # Coming as string from frontend
-    start_date: Optional[str] = Form(None),
-    end_date: Optional[str] = Form(None),
-    current_user: User = Depends(get_current_admin),
+    title: str = Form(..., description="Election title"),
+    description: Optional[str] = Form(None, description="Election description"),
+    election_type: str = Form(..., description="Type of election: federal, state, or local"),
+    state: Optional[str] = Form(None, description="State name (for state/local elections)"),
+    is_active: str = Form("false", description="Active status (true/false)"),
+    start_date: Optional[str] = Form(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Form(None, description="End date (YYYY-MM-DD)"),
+    current_user = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
+    """
+    Create a new election.
+    Admin only.
+    """
     try:
-        print("\n🔍 Received Election Creation Request")
-        print("Title:", title)
-        print("Description:", description)
-        print("Election Type:", election_type)
-        print("State:", state)
-        print("is_active (raw):", is_active)
-        print("Start:", start_date)
-        print("End:", end_date)
+        # Debug logging (remove or lower severity in production)
+        print("🔍 create_election request:", {
+            "title": title, "description": description, "election_type": election_type,
+            "state": state, "is_active": is_active, "start_date": start_date, "end_date": end_date
+        })
 
-        # 🔥 Convert is_active string → boolean
-        is_active_bool = is_active.lower() == "true"
+        # normalize boolean
+        is_active_bool = str(is_active).strip().lower() == "true"
 
-        # --- Validate election type ---
-        from app.models.models import ElectionType, State as StateEnum
-
-        valid_types = [e.value for e in ElectionType]
-        if election_type.lower() not in valid_types:
+        # validate election_type -> convert to Enum
+        et_lower = election_type.strip().lower()
+        valid_types = [t.value for t in ElectionType]
+        if et_lower not in valid_types:
             return StandardResponse(
                 status=False,
                 data=None,
-                error=f"Invalid election type. Must be {valid_types}",
+                error=f"Invalid election_type. Allowed: {', '.join(valid_types)}",
                 message="Election creation failed"
             )
+        et_enum = ElectionType(et_lower)
 
-        # --- Validate state ---
+        # validate state if present -> convert to Enum
         validated_state = None
-        if state and state != "":
-            valid_states = [s.value for s in StateEnum]
-            if state not in valid_states:
+        if state and state.strip() != "":
+            # Accept exact values (case sensitive because Enum values are capitalized in your model).
+            # Allow user to send lowercase by comparing lowercased values.
+            states_map = {s.value.lower(): s for s in State}
+            state_key = state.strip().lower()
+            if state_key not in states_map:
                 return StandardResponse(
                     status=False,
                     data=None,
-                    error=f"Invalid state. Must be one of {valid_states}",
+                    error=f"Invalid state. Must be one of: {', '.join([s.value for s in State])}",
                     message="Election creation failed"
                 )
-            validated_state = state
+            validated_state = states_map[state_key]  # enum member
 
-        # --- Parse dates safely ---
-        def parse_date(date_str):
-            if not date_str or date_str.strip() == "":
+        # safe date parsing helper: accepts YYYY-MM-DD only
+        def parse_date(sd: Optional[str]):
+            if not sd or str(sd).strip() == "":
                 return None
+            s = sd.strip()
+            # Accept just date part if full ISO provided
+            if "T" in s:
+                s = s.split("T")[0]
             try:
-                return datetime.strptime(date_str, "%Y-%m-%d")
-            except:
-                return None  # Avoid crashing the response model
+                return datetime.strptime(s, "%Y-%m-%d")
+            except ValueError:
+                return None
 
         parsed_start = parse_date(start_date)
         parsed_end = parse_date(end_date)
 
-        # --- Validate date ordering ---
         if parsed_start and parsed_end and parsed_start >= parsed_end:
             return StandardResponse(
                 status=False,
@@ -1335,12 +1338,22 @@ async def create_election(
                 message="Election creation failed"
             )
 
-        # --- Save election ---
+        # title validation
+        if not title or not title.strip():
+            return StandardResponse(
+                status=False,
+                data=None,
+                error="Election title cannot be empty",
+                message="Election creation failed"
+            )
+
+        # Build SQLAlchemy Election object.
+        # Assign enum members (SQLAlchemy Enum column will store their values)
         election = Election(
             title=title.strip(),
-            description=description.strip() if description else None,
-            election_type=election_type.lower(),
-            state=validated_state,
+            description=(description.strip() if description and description.strip() else None),
+            election_type=et_enum,               # Enum member
+            state=(validated_state if validated_state is not None else None),
             is_active=is_active_bool,
             start_date=parsed_start,
             end_date=parsed_end
@@ -1350,36 +1363,35 @@ async def create_election(
         db.commit()
         db.refresh(election)
 
-        print("✅ Election created with ID:", election.id)
-
+        # Return consistent StandardResponse dict
         return StandardResponse(
             status=True,
             data={
                 "election_id": election.id,
                 "title": election.title,
                 "description": election.description,
-                "election_type": election.election_type,
-                "state": election.state,
+                "election_type": election.election_type.value if isinstance(election.election_type, ElectionTypeEnum) else str(election.election_type),
+                "state": election.state.value if election.state is not None else None,
                 "is_active": election.is_active,
                 "start_date": election.start_date.isoformat() if election.start_date else None,
-                "end_date": election.end_date.isoformat() if election.end_date else None
+                "end_date": election.end_date.isoformat() if election.end_date else None,
             },
             error=None,
             message="Election created successfully"
         )
 
-    except Exception as e:
+    except Exception as exc:
         db.rollback()
-        print("❌ Backend Error:", e)
+        print("❌ create_election error:", exc)
+        import traceback
+        traceback.print_exc()
 
-        # 🔥 Always return a valid StandardResponse
         return StandardResponse(
             status=False,
             data=None,
-            error=str(e),
+            error=str(exc),
             message="Error creating election"
         )
-
     
 @router.put("/elections/{election_id}", response_model=StandardResponse[dict])
 async def update_election(
