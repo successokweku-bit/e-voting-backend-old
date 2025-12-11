@@ -47,6 +47,61 @@ async def get_active_elections(db: Session = Depends(get_db)):
             message="Error retrieving active elections"
         )
 
+# @router.get("/elections/{election_id}", response_model=StandardResponse[ElectionWithPositions])
+# async def get_election_details(
+#     election_id: int,
+#     db: Session = Depends(get_db)
+# ):
+#     """Get election details with positions and candidates (Public)"""
+#     try:
+#         election = db.query(Election).filter(Election.id == election_id).first()
+#         if not election:
+#             return StandardResponse[ElectionWithPositions](
+#                 status=False,
+#                 data=None,
+#                 error="Election not found",
+#                 message="Election retrieval failed"
+#             )
+        
+#         # Get positions with candidates and vote counts
+#         positions = db.query(Position).filter(Position.election_id == election_id).all()
+        
+#         positions_with_candidates = []
+#         for position in positions:
+#             candidates = db.query(Candidate).filter(Candidate.position_id == position.id).all()
+            
+#             candidates_with_votes = []
+#             for candidate in candidates:
+#                 vote_count = db.query(Vote).filter(Vote.candidate_id == candidate.id).count()
+#                 candidate_data = CandidateWithVotes.model_validate(candidate)
+#                 candidate_data.votes_count = vote_count
+#                 candidates_with_votes.append(candidate_data)
+            
+#             position_data = PositionWithCandidates.model_validate(position)
+#             position_data.candidates = candidates_with_votes
+#             positions_with_candidates.append(position_data)
+        
+#         total_votes = db.query(Vote).filter(Vote.election_id == election_id).count()
+        
+#         election_data = ElectionWithPositions.model_validate(election)
+#         election_data.positions = positions_with_candidates
+#         election_data.total_votes = total_votes
+        
+#         return StandardResponse[ElectionWithPositions](
+#             status=True,
+#             data=election_data,
+#             error=None,
+#             message="Election details retrieved successfully"
+#         )
+        
+#     except Exception as e:
+#         return StandardResponse[ElectionWithPositions](
+#             status=False,
+#             data=None,
+#             error=str(e),
+#             message="Error retrieving election details"
+#         )
+
 @router.get("/elections/{election_id}", response_model=StandardResponse[ElectionWithPositions])
 async def get_election_details(
     election_id: int,
@@ -72,20 +127,61 @@ async def get_election_details(
             
             candidates_with_votes = []
             for candidate in candidates:
+                # Skip candidates with missing user
+                if not candidate.user:
+                    print(f"⚠️  Warning: Candidate {candidate.id} has no associated user")
+                    continue
+                
                 vote_count = db.query(Vote).filter(Vote.candidate_id == candidate.id).count()
-                candidate_data = CandidateWithVotes.model_validate(candidate)
-                candidate_data.votes_count = vote_count
+                
+                # Manually construct candidate data
+                candidate_data = CandidateWithVotes(
+                    id=candidate.id,
+                    user_id=candidate.user_id,
+                    name=candidate.user.full_name,  # Get name from user relationship
+                    position_id=candidate.position_id,
+                    party_id=candidate.party_id,
+                    bio=candidate.bio,
+                    manifestos=candidate.manifestos if candidate.manifestos else [],
+                    election=Election(
+                        id=election.id,
+                        title=election.title,
+                        description=election.description,
+                        election_type=election.election_type,
+                        state=election.state,
+                        start_date=election.start_date,
+                        end_date=election.end_date
+                    ) if election else None,
+                    votes_count=vote_count
+                )
                 candidates_with_votes.append(candidate_data)
             
-            position_data = PositionWithCandidates.model_validate(position)
-            position_data.candidates = candidates_with_votes
+            # Manually construct position data
+            position_data = PositionWithCandidates(
+                id=position.id,
+                title=position.title,
+                description=position.description,
+                election_id=position.election_id,
+                candidates=candidates_with_votes
+            )
             positions_with_candidates.append(position_data)
         
         total_votes = db.query(Vote).filter(Vote.election_id == election_id).count()
         
-        election_data = ElectionWithPositions.model_validate(election)
-        election_data.positions = positions_with_candidates
-        election_data.total_votes = total_votes
+        # Manually construct election data
+        election_data = ElectionWithPositions(
+            id=election.id,
+            title=election.title,
+            description=election.description,
+            election_type=election.election_type,
+            state=election.state,
+            is_active=election.is_active,
+            start_date=election.start_date,
+            end_date=election.end_date,
+            created_at=election.created_at,
+            positions=positions_with_candidates,
+            total_votes=total_votes
+        )
         
         return StandardResponse[ElectionWithPositions](
             status=True,
@@ -95,13 +191,15 @@ async def get_election_details(
         )
         
     except Exception as e:
+        print(f"❌ Error retrieving election details: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return StandardResponse[ElectionWithPositions](
             status=False,
             data=None,
             error=str(e),
             message="Error retrieving election details"
         )
-
 # === VOTING ENDPOINTS (Authenticated Users) ===
 
 @router.post("/elections/{election_id}/vote", response_model=StandardResponse[VoteResponse])
@@ -233,112 +331,80 @@ async def get_my_vote(
 
 # === ADMIN ELECTION MANAGEMENT ===
 
-@router.post("/elections", response_model=StandardResponse[ElectionResponse])
-async def create_election(
-    election_data: ElectionCreate,
-    current_user: User = Depends(get_current_admin),
-    db: Session = Depends(get_db)
-):
-    """Create a new election (Admin only)"""
-    try:
-        # Validate state requirement for state/local elections
-        if election_data.election_type in [ElectionType.STATE, ElectionType.LOCAL]:
-            if not election_data.state:
-                return StandardResponse[ElectionResponse](
-                    status=False,
-                    data=None,
-                    error="State is required for state and local elections",
-                    message="Election creation failed"
-                )
-        
-        election = Election(**election_data.model_dump())
-        
-        db.add(election)
-        db.commit()
-        db.refresh(election)
-        
-        election_response = ElectionResponse.model_validate(election)
-        
-        return StandardResponse[ElectionResponse](
-            status=True,
-            data=election_response,
-            error=None,
-            message="Election created successfully"
-        )
-        
-    except Exception as e:
-        db.rollback()
-        return StandardResponse[ElectionResponse](
-            status=False,
-            data=None,
-            error=str(e),
-            message="Error creating election"
-        )
-
-@router.post("/positions", response_model=StandardResponse[PositionResponse])
-async def create_position(
-    position_data: PositionCreate,
-    current_user: User = Depends(get_current_admin),
-    db: Session = Depends(get_db)
-):
-    """Create a new position (Admin only)"""
-    try:
-        position = Position(**position_data.model_dump())
-        
-        db.add(position)
-        db.commit()
-        db.refresh(position)
-        
-        position_response = PositionResponse.model_validate(position)
-        
-        return StandardResponse[PositionResponse](
-            status=True,
-            data=position_response,
-            error=None,
-            message="Position created successfully"
-        )
-        
-    except Exception as e:
-        db.rollback()
-        return StandardResponse[PositionResponse](
-            status=False,
-            data=None,
-            error=str(e),
-            message="Error creating position"
-        )
-
-# @router.post("/candidates", response_model=StandardResponse[CandidateResponse])
-# async def create_candidate(
-#     candidate_data: CandidateCreate,
+# @router.post("/elections", response_model=StandardResponse[ElectionResponse])
+# async def create_election(
+#     election_data: ElectionCreate,
 #     current_user: User = Depends(get_current_admin),
 #     db: Session = Depends(get_db)
 # ):
-#     """Create a new candidate (Admin only)"""
+#     """Create a new election (Admin only)"""
 #     try:
-#         candidate = Candidate(**candidate_data.model_dump())
+#         # Validate state requirement for state/local elections
+#         if election_data.election_type in [ElectionType.STATE, ElectionType.LOCAL]:
+#             if not election_data.state:
+#                 return StandardResponse[ElectionResponse](
+#                     status=False,
+#                     data=None,
+#                     error="State is required for state and local elections",
+#                     message="Election creation failed"
+#                 )
         
-#         db.add(candidate)
+#         election = Election(**election_data.model_dump())
+        
+#         db.add(election)
 #         db.commit()
-#         db.refresh(candidate)
+#         db.refresh(election)
         
-#         candidate_response = CandidateResponse.model_validate(candidate)
+#         election_response = ElectionResponse.model_validate(election)
         
-#         return StandardResponse[CandidateResponse](
+#         return StandardResponse[ElectionResponse](
 #             status=True,
-#             data=candidate_response,
+#             data=election_response,
 #             error=None,
-#             message="Candidate created successfully"
+#             message="Election created successfully"
 #         )
         
 #     except Exception as e:
 #         db.rollback()
-#         return StandardResponse[CandidateResponse](
+#         return StandardResponse[ElectionResponse](
 #             status=False,
 #             data=None,
 #             error=str(e),
-#             message="Error creating candidate"
+#             message="Error creating election"
 #         )
-    
+
+# @router.post("/positions", response_model=StandardResponse[PositionResponse])
+# async def create_position(
+#     position_data: PositionCreate,
+#     current_user: User = Depends(get_current_admin),
+#     db: Session = Depends(get_db)
+# ):
+#     """Create a new position (Admin only)"""
+#     try:
+#         position = Position(**position_data.model_dump())
+        
+#         db.add(position)
+#         db.commit()
+#         db.refresh(position)
+        
+#         position_response = PositionResponse.model_validate(position)
+        
+#         return StandardResponse[PositionResponse](
+#             status=True,
+#             data=position_response,
+#             error=None,
+#             message="Position created successfully"
+#         )
+        
+#     except Exception as e:
+#         db.rollback()
+#         return StandardResponse[PositionResponse](
+#             status=False,
+#             data=None,
+#             error=str(e),
+#             message="Error creating position"
+#         )
+
 
 @router.get("/elections/{election_id}/results", response_model=StandardResponse[dict])
 async def get_election_results(

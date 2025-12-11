@@ -1289,7 +1289,6 @@ async def get_election_by_id(
 #             error=str(e),
 #             message="Error creating election"
 #         )
-    
 
 @router.post("/elections", response_model=StandardResponse[dict], summary="Create Election")
 async def create_election(
@@ -1559,7 +1558,6 @@ async def delete_election(
             error=str(e),
             message="Error deleting election"
         )
-
 
 # === USER PROFILE IMAGE MANAGEMENT ===
 @router.put("/users/{user_id}/profile-image", response_model=StandardResponse[UserResponse])
@@ -1918,7 +1916,6 @@ async def delete_position(
         )
 
 # === ADMIN DASHBOARD ENDPOINTS ===
-
 @router.get("/dashboard/stats", response_model=StandardResponse[dict], summary="Get Dashboard Statistics")
 async def get_dashboard_stats(
     current_user: User = Depends(get_current_admin),
