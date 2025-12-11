@@ -9,10 +9,11 @@ from app.models.models import Election, Position, Candidate, Vote, User, State, 
 from app.schemas.schemas import (
     ElectionCreate, ElectionResponse, ElectionWithPositions,
     PositionCreate, PositionResponse, 
-    CandidateCreate, CandidateResponse,
+    CandidateCreate, CandidateResponse,CandidateElectionResponse,
     VoteRequest, VoteResponse, StandardResponse, PoliticalPartyResponse,
-    CandidateWithVotes, PositionWithCandidates
+    CandidateWithVotes, PositionWithCandidates, PartyResponse
 )
+
 from app.core.roles import get_current_admin
 from app.routes.auth import get_current_active_user
 from app.services.secure_voting_service import SecureVotingService
@@ -46,61 +47,6 @@ async def get_active_elections(db: Session = Depends(get_db)):
             error=str(e),
             message="Error retrieving active elections"
         )
-
-# @router.get("/elections/{election_id}", response_model=StandardResponse[ElectionWithPositions])
-# async def get_election_details(
-#     election_id: int,
-#     db: Session = Depends(get_db)
-# ):
-#     """Get election details with positions and candidates (Public)"""
-#     try:
-#         election = db.query(Election).filter(Election.id == election_id).first()
-#         if not election:
-#             return StandardResponse[ElectionWithPositions](
-#                 status=False,
-#                 data=None,
-#                 error="Election not found",
-#                 message="Election retrieval failed"
-#             )
-        
-#         # Get positions with candidates and vote counts
-#         positions = db.query(Position).filter(Position.election_id == election_id).all()
-        
-#         positions_with_candidates = []
-#         for position in positions:
-#             candidates = db.query(Candidate).filter(Candidate.position_id == position.id).all()
-            
-#             candidates_with_votes = []
-#             for candidate in candidates:
-#                 vote_count = db.query(Vote).filter(Vote.candidate_id == candidate.id).count()
-#                 candidate_data = CandidateWithVotes.model_validate(candidate)
-#                 candidate_data.votes_count = vote_count
-#                 candidates_with_votes.append(candidate_data)
-            
-#             position_data = PositionWithCandidates.model_validate(position)
-#             position_data.candidates = candidates_with_votes
-#             positions_with_candidates.append(position_data)
-        
-#         total_votes = db.query(Vote).filter(Vote.election_id == election_id).count()
-        
-#         election_data = ElectionWithPositions.model_validate(election)
-#         election_data.positions = positions_with_candidates
-#         election_data.total_votes = total_votes
-        
-#         return StandardResponse[ElectionWithPositions](
-#             status=True,
-#             data=election_data,
-#             error=None,
-#             message="Election details retrieved successfully"
-#         )
-        
-#     except Exception as e:
-#         return StandardResponse[ElectionWithPositions](
-#             status=False,
-#             data=None,
-#             error=str(e),
-#             message="Error retrieving election details"
-#         )
 
 @router.get("/elections/{election_id}", response_model=StandardResponse[ElectionWithPositions])
 async def get_election_details(
@@ -329,6 +275,78 @@ async def get_my_vote(
             message="Error retrieving vote status"
         )
 
+@router.get(
+    "/elections/{election_id}/positions/{position_id}/candidates",
+    response_model=StandardResponse[List[CandidateElectionResponse]]
+)
+async def get_candidates_for_position(
+    election_id: int,
+    position_id: int,
+    db: Session = Depends(get_db)
+):
+    try:
+        candidates = (
+            db.query(Candidate)
+            .filter(
+                Candidate.election_id == election_id,
+                Candidate.position_id == position_id,
+            )
+            .all()
+        )
+
+        result = []
+        for c in candidates:
+
+            # Election Info
+            election_info = Election(
+                id=c.election.id,
+                title=c.election.title,
+                description=c.election.description,
+                election_type=c.election.election_type.value if c.election.election_type else None,
+                state=c.election.state.value if c.election.state else None,
+                start_date=c.election.start_date,
+                end_date=c.election.end_date,
+            )
+
+            # Party info
+            party_info = None
+            if c.party:
+                party_info = PartyResponse(
+                    id=c.party.id,
+                    name=c.party.name,
+                    description=c.party.description,
+                    logo_url=c.party.logo_url
+                )
+
+            # Candidate Response
+            result.append(
+                CandidateElectionResponse(
+                    id=c.id,
+                    user_id=c.user_id,
+                    name=c.user.full_name,
+                    position_id=c.position_id,
+                    bio=c.bio,
+                    manifestos=c.manifestos,
+                    party=party_info,          
+                    election=election_info
+                )
+            )
+
+        return StandardResponse[List[CandidateElectionResponse]](
+            status=True,
+            data=result,
+            error=None,
+            message=f"Retrieved {len(result)} candidates"
+        )
+
+    except Exception as e:
+        return StandardResponse[List[CandidateElectionResponse]](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error retrieving candidates"
+        )
+    
 # === ADMIN ELECTION MANAGEMENT ===
 
 # @router.post("/elections", response_model=StandardResponse[ElectionResponse])

@@ -241,6 +241,26 @@ class CandidateResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+class PartyResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    logo_url: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class CandidateElectionResponse(BaseModel):
+    id: int
+    user_id: int
+    name: str
+    position_id: int
+    bio: Optional[str]
+    manifestos: Optional[List[dict]]
+    party: Optional[PartyResponse]
+    election: Optional[ElectionInfo]
+
+    model_config = ConfigDict(from_attributes=True)
+
 class CandidateWithVotes(CandidateResponse):
     votes_count: int = 0
 
@@ -287,4 +307,15 @@ class ElectionResultsDetailed(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+# class CandidateUserResponse(BaseModel):
+#     id: int
+#     user_id: int
+#     full_name: str
+#     party_name: str | None
+#     position_id: int
+#     election_id: int
+#     bio: str | None
+#     manifestos: list | None
 
+#     class Config:
+#         from_attributes = True
