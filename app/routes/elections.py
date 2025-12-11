@@ -22,6 +22,10 @@ from app.core.roles import get_current_super_admin
 from app.services.secure_voting_service import SecureVotingService
 from app.core.roles import get_current_super_admin
 
+def get_current_utc_time():
+    """Get current UTC time as timezone-aware datetime"""
+    return datetime.now(timezone.utc)
+
 router = APIRouter()
 
 # === PUBLIC ELECTION ENDPOINTS ===
