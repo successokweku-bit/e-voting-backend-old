@@ -4,9 +4,10 @@ Create this as: app/services/secure_voting_service.py
 """
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 import json
+import secrets
 
 from app.models.models import (
     User, Election, Candidate, Vote, Position,
@@ -605,6 +606,182 @@ class SecureVotingService:
         ).first()
         
         return vote is not None
+    
+    @staticmethod
+    def _generate_anonymous_id(user_id: int) -> str:
+        """
+        Generates an irreversible anonymous voter ID.
+        Uses the crypto_service’s hashing system to ensure it's unlinkable.
+        """
+        return crypto_service.generate_anonymous_voter_id(str(user_id))
+
+
+    @staticmethod
+    def _encrypt_vote(vote_json: str) -> str:
+        """
+        Encrypt vote using your encryption service.
+        """
+        return encrypt_vote(vote_json)
+
+
+    @staticmethod
+    def _generate_vote_hash(
+        anonymous_voter_id: str,
+        election_id: int,
+        position_id: int,
+        candidate_id: int
+    ) -> str:
+        """
+        Creates a unique hash for the vote to ensure integrity.
+        """
+        payload = {
+            "anon": anonymous_voter_id,
+            "election": election_id,
+            "position": position_id,
+            "candidate": candidate_id
+        }
+        return crypto_service.generate_vote_hash(payload)
+
+
+    @staticmethod
+    def _generate_receipt() -> str:
+        """
+        Generates a human-friendly vote receipt number.
+        Example: VR-A1B2C3D4E5F6
+        """
+        code = secrets.token_hex(6).upper()
+        return f"VR-{code}"
+
+
+    @staticmethod
+    def _hash_receipt(receipt: str, vote_hash: str) -> str:
+        """
+        Hash the receipt + vote hash for verification.
+        """
+        return crypto_service.generate_vote_hash({
+            "receipt": receipt,
+            "vote_hash": vote_hash
+        })
+
+
+    @staticmethod
+    def _generate_commitment(vote_hash: str, commitment_factor: str) -> str:
+        """
+        Creates a zero-knowledge proof commitment hash.
+        """
+        return crypto_service.generate_vote_hash({
+            "vote_hash": vote_hash,
+            "factor": commitment_factor
+        })
+
+
+    @staticmethod
+    def _get_latest_audit_hash(db: Session) -> Optional[str]:
+        """
+        Retrieves last audit log hash for blockchain-style chaining.
+        """
+        last_log = db.query(AuditLog).order_by(AuditLog.id.desc()).first()
+        return last_log.current_hash if last_log else "genesis"
+
+
+    @staticmethod
+    def _generate_audit_hash(action: str, user_id: int, timestamp: str) -> str:
+        """
+        Generates a hash for use in the audit logs.
+        """
+        return crypto_service.generate_audit_hash(
+            action=action,
+            user_id=user_id,
+            timestamp=timestamp
+        )
+    
+    @staticmethod
+    def _generate_anonymous_id(user_id: int) -> str:
+        """
+        Generates an irreversible anonymous voter ID.
+        Uses the crypto_service’s hashing system to ensure it's unlinkable.
+        """
+        return crypto_service.generate_anonymous_voter_id(str(user_id))
+
+
+    @staticmethod
+    def _encrypt_vote(vote_json: str) -> str:
+        """
+        Encrypt vote using your encryption service.
+        """
+        return encrypt_vote(vote_json)
+
+
+    @staticmethod
+    def _generate_vote_hash(
+        anonymous_voter_id: str,
+        election_id: int,
+        position_id: int,
+        candidate_id: int
+    ) -> str:
+        """
+        Creates a unique hash for the vote to ensure integrity.
+        """
+        payload = {
+            "anon": anonymous_voter_id,
+            "election": election_id,
+            "position": position_id,
+            "candidate": candidate_id
+        }
+        return crypto_service.generate_vote_hash(payload)
+
+
+    @staticmethod
+    def _generate_receipt() -> str:
+        """
+        Generates a human-friendly vote receipt number.
+        Example: VR-A1B2C3D4E5F6
+        """
+        code = secrets.token_hex(6).upper()
+        return f"VR-{code}"
+
+
+    @staticmethod
+    def _hash_receipt(receipt: str, vote_hash: str) -> str:
+        """
+        Hash the receipt + vote hash for verification.
+        """
+        return crypto_service.generate_vote_hash({
+            "receipt": receipt,
+            "vote_hash": vote_hash
+        })
+
+
+    @staticmethod
+    def _generate_commitment(vote_hash: str, commitment_factor: str) -> str:
+        """
+        Creates a zero-knowledge proof commitment hash.
+        """
+        return crypto_service.generate_vote_hash({
+            "vote_hash": vote_hash,
+            "factor": commitment_factor
+        })
+
+
+    @staticmethod
+    def _get_latest_audit_hash(db: Session) -> Optional[str]:
+        """
+        Retrieves last audit log hash for blockchain-style chaining.
+        """
+        last_log = db.query(AuditLog).order_by(AuditLog.id.desc()).first()
+        return last_log.current_hash if last_log else "genesis"
+
+
+    @staticmethod
+    def _generate_audit_hash(action: str, user_id: int, timestamp: str) -> str:
+        """
+        Generates a hash for use in the audit logs.
+        """
+        return crypto_service.generate_audit_hash(
+            action=action,
+            user_id=user_id,
+            timestamp=timestamp
+        )
     
     @staticmethod
     def get_user_voting_status(
