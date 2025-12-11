@@ -33,156 +33,220 @@ class SecureVotingService:
         position_id: int,
         candidate_id: int,
         ip_address: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        Cast an encrypted, anonymous vote for a specific position
+    ):
+        """Cast an encrypted vote with full anonymization"""
         
-        Returns:
-            Dictionary with vote_receipt and confirmation message
-        """
-        # Verify election exists and is active
-        election = db.query(Election).filter(Election.id == election_id).first()
-        if not election:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "status": False,
-                    "data": None,
-                    "error": "Election not found",
-                    "message": "Vote failed"
-                }
-            )
+        # Helper function for timezone-aware datetime
+        def get_current_utc_time():
+            return datetime.now(timezone.utc)
         
-        # Check if election is active
-        now = datetime.utcnow()
-        if now < election.start_date or now > election.end_date:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "status": False,
-                    "data": None,
-                    "error": "Election is not currently active",
-                    "message": "Vote failed"
-                }
-            )
-        
-        # Verify position exists and belongs to this election
-        position = db.query(Position).filter(
-            Position.id == position_id,
-            Position.election_id == election_id
-        ).first()
-        if not position:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "status": False,
-                    "data": None,
-                    "error": "Position not found in this election",
-                    "message": "Vote failed"
-                }
-            )
-        
-        # Verify candidate exists and belongs to this position
-        candidate = db.query(Candidate).filter(
-            Candidate.id == candidate_id,
-            Candidate.position_id == position_id
-        ).first()
-        if not candidate:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "status": False,
-                    "data": None,
-                    "error": "Candidate not found in this position",
-                    "message": "Vote failed"
-                }
-            )
-        
-        # Check state eligibility (for state/local elections)
-        if election.election_type != ElectionType.FEDERAL and election.state:
-            if user.state_of_residence.value != election.state.value:
+        try:
+            # 1. Validate election
+            election = db.query(Election).filter(Election.id == election_id).first()
+            if not election:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=404,
                     detail={
                         "status": False,
                         "data": None,
-                        "error": f"Only residents of {election.state.value} can vote in this election",
+                        "error": "Election not found",
                         "message": "Vote failed"
                     }
                 )
+            
+            # Check if election is active
+            if not election.is_active:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "status": False,
+                        "data": None,
+                        "error": "Election is not active",
+                        "message": "Vote failed"
+                    }
+                )
+            
+            # Check election dates - FIX: Use timezone-aware datetime
+            current_time = get_current_utc_time()
+            
+            if election.start_date and current_time < election.start_date.replace(tzinfo=timezone.utc):
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "status": False,
+                        "data": None,
+                        "error": "Election has not started yet",
+                        "message": "Vote failed"
+                    }
+                )
+            
+            if election.end_date and current_time > election.end_date.replace(tzinfo=timezone.utc):
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "status": False,
+                        "data": None,
+                        "error": "Election has ended",
+                        "message": "Vote failed"
+                    }
+                )
+            
+            # 2. Validate position
+            position = db.query(Position).filter(
+                Position.id == position_id,
+                Position.election_id == election_id
+            ).first()
+            
+            if not position:
+                raise HTTPException(
+                    status_code=404,
+                    detail={
+                        "status": False,
+                        "data": None,
+                        "error": "Position not found for this election",
+                        "message": "Vote failed"
+                    }
+                )
+            
+            # 3. Validate candidate
+            candidate = db.query(Candidate).filter(
+                Candidate.id == candidate_id,
+                Candidate.position_id == position_id,
+                Candidate.election_id == election_id
+            ).first()
+            
+            if not candidate:
+                raise HTTPException(
+                    status_code=404,
+                    detail={
+                        "status": False,
+                        "data": None,
+                        "error": "Candidate not found for this position",
+                        "message": "Vote failed"
+                    }
+                )
+            
+            # 4. Check if user already voted for this position in this election
+            existing_vote = db.query(EncryptedVote).filter(
+                EncryptedVote.anonymous_voter_id == SecureVotingService._generate_anonymous_id(user.id),
+                EncryptedVote.election_id == election_id,
+                EncryptedVote.position_id == position_id
+            ).first()
+            
+            if existing_vote:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "status": False,
+                        "data": None,
+                        "error": "You have already voted for this position",
+                        "message": "Vote failed"
+                    }
+                )
+            
+            # 5. Generate anonymous voter ID (cannot be traced back)
+            anonymous_voter_id = SecureVotingService._generate_anonymous_id(user.id)
+            
+            # 6. Encrypt vote data
+            vote_data = {
+                "user_id": user.id,
+                "candidate_id": candidate_id,
+                "timestamp": current_time.isoformat()
+            }
+            encrypted_data = SecureVotingService._encrypt_vote(json.dumps(vote_data))
+            
+            # 7. Generate vote hash for integrity
+            vote_hash = SecureVotingService._generate_vote_hash(
+                anonymous_voter_id, 
+                election_id, 
+                position_id, 
+                candidate_id
+            )
+            
+            # 8. Generate receipt for voter
+            vote_receipt = SecureVotingService._generate_receipt()
+            receipt_hash = SecureVotingService._hash_receipt(vote_receipt, vote_hash)
+            
+            # 9. Generate commitment for zero-knowledge proof
+            commitment_factor = secrets.token_hex(32)
+            commitment_hash = SecureVotingService._generate_commitment(
+                vote_hash, 
+                commitment_factor
+            )
+            
+            # 10. Create encrypted vote record
+            encrypted_vote = EncryptedVote(
+                anonymous_voter_id=anonymous_voter_id,
+                election_id=election_id,
+                position_id=position_id,
+                candidate_id=candidate_id,
+                encrypted_vote_data=encrypted_data,
+                vote_hash=vote_hash,
+                vote_receipt=vote_receipt,
+                receipt_hash=receipt_hash,
+                commitment_hash=commitment_hash,
+                cast_at=current_time  # FIX: Use timezone-aware datetime
+            )
+            
+            db.add(encrypted_vote)
+            
+            # 11. Store commitment separately
+            vote_commitment = VoteCommitment(
+                vote_hash=vote_hash,
+                commitment_factor=commitment_factor
+            )
+            
+            db.add(vote_commitment)
+            
+            # 12. Create audit log
+            audit_log = AuditLog(
+                action="VOTE_CAST",
+                user_id=user.id,
+                details=json.dumps({
+                    "election_id": election_id,
+                    "position_id": position_id,
+                    "vote_receipt": vote_receipt,
+                    "anonymous_id": anonymous_voter_id[:8] + "..."  # Partial for audit
+                }),
+                previous_hash=SecureVotingService._get_latest_audit_hash(db),
+                current_hash=SecureVotingService._generate_audit_hash(
+                    "VOTE_CAST", 
+                    user.id, 
+                    current_time.isoformat()
+                ),
+                ip_address=ip_address
+            )
+            
+            db.add(audit_log)
+            db.commit()
+            
+            # 13. Return receipt to voter
+            return {
+                "message": "Vote cast successfully",
+                "vote_receipt": vote_receipt,
+                "election": election.title,
+                "position": position.title,
+                "candidate": candidate.user.full_name if candidate.user else "Unknown",
+                "timestamp": current_time.isoformat(),
+                "instructions": "Save this receipt to verify your vote later. Your vote is encrypted and anonymous."
+            }
         
-        # Check if user already voted for this position (using anonymous ID)
-        anonymous_id = crypto_service.generate_anonymous_voter_id(user.id, election_id, position_id)
-        existing_vote = db.query(EncryptedVote).filter(
-            EncryptedVote.anonymous_voter_id == anonymous_id,
-            EncryptedVote.election_id == election_id,
-            EncryptedVote.position_id == position_id
-        ).first()
-        
-        if existing_vote:
+        except HTTPException:
+            raise
+        except Exception as e:
+            db.rollback()
+            print(f"❌ Error casting vote: {str(e)}")
+            import traceback
+            traceback.print_exc()
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=500,
                 detail={
                     "status": False,
                     "data": None,
-                    "error": f"You have already voted for {position.title}",
+                    "error": str(e),
                     "message": "Vote failed"
                 }
             )
-        
-        # Encrypt the vote
-        encrypted_components = encrypt_vote(user.id, candidate_id, election_id, position_id)
-        
-        # Create encrypted vote record
-        encrypted_vote = EncryptedVote(
-            anonymous_voter_id=encrypted_components["anonymous_voter_id"],
-            election_id=election_id,
-            position_id=position_id,
-            candidate_id=candidate_id,
-            encrypted_vote_data=encrypted_components["encrypted_vote_data"],
-            vote_hash=encrypted_components["vote_hash"],
-            vote_receipt=encrypted_components["vote_receipt"],
-            receipt_hash=encrypted_components["receipt_hash"],
-            commitment_hash=encrypted_components["commitment_hash"],
-            cast_at=encrypted_components["timestamp"]
-        )
-        
-        db.add(encrypted_vote)
-        db.flush()
-        
-        # Store commitment factor separately
-        commitment = VoteCommitment(
-            vote_hash=encrypted_components["vote_hash"],
-            commitment_factor=encrypted_components["commitment_factor"]
-        )
-        db.add(commitment)
-        
-        # Create audit log
-        audit_log = SecureVotingService._create_audit_log(
-            db=db,
-            action="SECURE_VOTE_CAST",
-            user_id=user.id,
-            details={
-                "election_id": election_id,
-                "position_id": position_id,
-                "vote_receipt": encrypted_components["vote_receipt"],
-                "anonymous_voter_id": anonymous_id[:16] + "...",
-            },
-            ip_address=ip_address
-        )
-        
-        db.commit()
-        db.refresh(encrypted_vote)
-        
-        return {
-            "success": True,
-            "vote_receipt": encrypted_components["vote_receipt"],
-            "message": f"Vote cast successfully for {position.title}! Save your receipt to verify your vote.",
-            "cast_at": encrypted_vote.cast_at.isoformat(),
-            "election_name": election.title,
-            "position_title": position.title
-        }
-    
     # ==================== VOTE VERIFICATION ====================
     
     @staticmethod
