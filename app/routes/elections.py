@@ -11,7 +11,7 @@ from app.schemas.schemas import (
     PositionCreate, PositionResponse, 
     CandidateCreate, CandidateResponse,CandidateElectionResponse,
     VoteRequest, VoteResponse, StandardResponse, PoliticalPartyResponse,
-    CandidateWithVotes, PositionWithCandidates, PartyResponse
+    CandidateWithVotes, PositionWithCandidates, PartyResponse,SecureVoteResult
 )
 
 from app.core.roles import get_current_admin
@@ -547,8 +547,61 @@ async def get_all_parties_public(db: Session = Depends(get_db)):
 # ==================== SECURE VOTING ENDPOINTS ====================
 # Add these routes to your existing router
 
-@router.post("/elections/{election_id}/positions/{position_id}/vote-secure", 
-             response_model=StandardResponse[dict])
+# @router.post("/elections/{election_id}/positions/{position_id}/vote-secure", 
+#              response_model=StandardResponse[dict])
+# async def cast_secure_vote(
+#     request: Request,
+#     election_id: int,
+#     position_id: int,
+#     vote_data: VoteRequest,
+#     current_user: User = Depends(get_current_active_user),
+#     db: Session = Depends(get_db)
+# ):
+#     """
+#     Cast an encrypted, anonymous vote for a specific position
+#     Returns a vote receipt that the voter can use to verify their vote
+#     """
+#     try:
+#         # Get IP address
+#         from fastapi import Request
+#         ip_address = request.client.host if request.client else None
+        
+#         result = SecureVotingService.cast_encrypted_vote(
+#             db=db,
+#             user=current_user,
+#             election_id=election_id,
+#             position_id=position_id,
+#             candidate_id=vote_data.candidate_id,
+#             ip_address=ip_address
+#         )
+        
+#         return StandardResponse[dict](
+#             status=True,
+#             data=result,
+#             error=None,
+#             message=result["message"]
+#         )
+    
+#     except HTTPException as e:
+#         return StandardResponse[dict](
+#             status=False,
+#             data=None,
+#             error=e.detail.get("error") if isinstance(e.detail, dict) else str(e.detail),
+#             message="Failed to cast vote"
+#         )
+#     except Exception as e:
+#         return StandardResponse[dict](
+#             status=False,
+#             data=None,
+#             error=str(e),
+#             message="Failed to cast vote"
+#         )
+
+
+@router.post(
+    "/elections/{election_id}/positions/{position_id}/vote-secure",
+    response_model=StandardResponse[SecureVoteResult]
+)
 async def cast_secure_vote(
     request: Request,
     election_id: int,
@@ -557,15 +610,9 @@ async def cast_secure_vote(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """
-    Cast an encrypted, anonymous vote for a specific position
-    Returns a vote receipt that the voter can use to verify their vote
-    """
     try:
-        # Get IP address
-        from fastapi import Request
         ip_address = request.client.host if request.client else None
-        
+
         result = SecureVotingService.cast_encrypted_vote(
             db=db,
             user=current_user,
@@ -574,25 +621,23 @@ async def cast_secure_vote(
             candidate_id=vote_data.candidate_id,
             ip_address=ip_address
         )
-        
-        return StandardResponse[dict](
+
+        return StandardResponse(
             status=True,
-            data=result,
-            error=None,
+            data=SecureVoteResult.model_validate(result),
             message=result["message"]
         )
-    
+
     except HTTPException as e:
-        return StandardResponse[dict](
+        return StandardResponse(
             status=False,
-            data=None,
             error=e.detail.get("error") if isinstance(e.detail, dict) else str(e.detail),
             message="Failed to cast vote"
         )
+
     except Exception as e:
-        return StandardResponse[dict](
+        return StandardResponse(
             status=False,
-            data=None,
             error=str(e),
             message="Failed to cast vote"
         )
@@ -884,7 +929,7 @@ def get_upcoming_elections(db: Session = Depends(get_db)):
     )
 
     return StandardResponse(
-        status="success",
+        status=True,
         message="Upcoming elections retrieved successfully",
         data=elections
     )
@@ -893,9 +938,11 @@ def get_upcoming_elections(db: Session = Depends(get_db)):
 # ================================
 # GET PAST ELECTIONS
 # ================================
-@router.get("/past", response_model=StandardResponse)
+@router.get(
+    "/past",
+    response_model=StandardResponse[list[ElectionResponse]]
+)
 def get_past_elections(db: Session = Depends(get_db)):
-
     now = datetime.now(timezone.utc)
 
     elections = (
@@ -906,7 +953,7 @@ def get_past_elections(db: Session = Depends(get_db)):
     )
 
     return StandardResponse(
-        status="success",
+        status=True,
         message="Past elections retrieved successfully",
-        data=elections
+        data=[ElectionResponse.model_validate(e) for e in elections]
     )

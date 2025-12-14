@@ -301,7 +301,13 @@ class VoteCommitment(Base):
     commitment_factor = Column(String(64), nullable=False)
     
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=func.now, nullable=False)
+    # created_at = Column(DateTime(timezone=True), default=func.now, nullable=False)
+    
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(), # <--- Use server_default and CALL func.now()
+        nullable=False
+    )
     
     # Relationships
     encrypted_vote = relationship("EncryptedVote", back_populates="commitment")
@@ -333,8 +339,9 @@ class AuditLog(Base):
     current_hash = Column(String(64), nullable=False, unique=True, index=True)
     
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=func.now, nullable=False)
-    
+    # created_at = Column(DateTime(timezone=True), default=func.now, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=func.now(),nullable=False)
+
     # IP address and user agent
     ip_address = Column(String(45), nullable=True)
     user_agent = Column(String(255), nullable=True)
