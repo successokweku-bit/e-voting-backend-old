@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Form
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional, Dict, Any
 from sqlalchemy import func
@@ -563,6 +563,51 @@ async def get_all_parties_public(db: Session = Depends(get_db)):
 # ==================== SECURE VOTING ENDPOINTS ====================
 # Add these routes to your existing router
 
+# @router.post(
+#     "/elections/{election_id}/positions/{position_id}/vote-secure",
+#     response_model=StandardResponse[SecureVoteResult]
+# )
+# async def cast_secure_vote(
+#     request: Request,
+#     election_id: int,
+#     position_id: int,
+#     vote_data: VoteRequest,
+#     current_user: User = Depends(get_current_active_user),
+#     db: Session = Depends(get_db)
+# ):
+#     try:
+#         ip_address = request.client.host if request.client else None
+
+#         result = SecureVotingService.cast_encrypted_vote(
+#             db=db,
+#             user=current_user,
+#             election_id=election_id,
+#             position_id=position_id,
+#             candidate_id=vote_data.candidate_id,
+#             ip_address=ip_address
+#         )
+
+#         return StandardResponse(
+#             status=True,
+#             data=SecureVoteResult.model_validate(result),
+#             message=result["message"]
+#         )
+
+#     except HTTPException as e:
+#         return StandardResponse(
+#             status=False,
+#             error=e.detail.get("error") if isinstance(e.detail, dict) else str(e.detail),
+#             message="Failed to cast vote"
+#         )
+
+#     except Exception as e:
+#         return StandardResponse(
+#             status=False,
+#             error=str(e),
+#             message="Failed to cast vote"
+#         )
+
+
 @router.post(
     "/elections/{election_id}/positions/{position_id}/vote-secure",
     response_model=StandardResponse[SecureVoteResult]
@@ -571,7 +616,9 @@ async def cast_secure_vote(
     request: Request,
     election_id: int,
     position_id: int,
-    vote_data: VoteRequest,
+    # === CHANGE HERE: Use Form for form-data fields ===
+    candidate_id: int = Form(...),
+    # ==================================================
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
@@ -583,7 +630,9 @@ async def cast_secure_vote(
             user=current_user,
             election_id=election_id,
             position_id=position_id,
-            candidate_id=vote_data.candidate_id,
+            # === CHANGE HERE: Pass the extracted candidate_id directly ===
+            candidate_id=candidate_id,
+            # ===========================================================
             ip_address=ip_address
         )
 
@@ -594,6 +643,7 @@ async def cast_secure_vote(
         )
 
     except HTTPException as e:
+        # ... (error handling remains the same)
         return StandardResponse(
             status=False,
             error=e.detail.get("error") if isinstance(e.detail, dict) else str(e.detail),
@@ -601,13 +651,13 @@ async def cast_secure_vote(
         )
 
     except Exception as e:
+        # ... (error handling remains the same)
         return StandardResponse(
             status=False,
             error=str(e),
             message="Failed to cast vote"
         )
-
-
+    
 @router.post("/vote/verify-receipt", response_model=StandardResponse[dict])
 async def verify_vote_receipt(
     request: Request,
