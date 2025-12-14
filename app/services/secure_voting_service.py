@@ -334,18 +334,70 @@ class SecureVotingService:
     
     # ==================== VOTE VERIFICATION ====================
     
+    # @staticmethod
+    # def verify_vote_receipt(
+    #     db: Session,
+    #     vote_receipt: str,
+    #     ip_address: Optional[str] = None
+    # ) -> Dict[str, Any]:
+    #     """Verify a vote receipt"""
+        
+    #     encrypted_vote = db.query(EncryptedVote).filter(
+    #         EncryptedVote.vote_receipt == vote_receipt
+    #     ).first()
+        
+    #     if not encrypted_vote:
+    #         raise HTTPException(
+    #             status_code=status.HTTP_404_NOT_FOUND,
+    #             detail={
+    #                 "status": False,
+    #                 "data": None,
+    #                 "error": "Vote receipt not found",
+    #                 "message": "Verification failed"
+    #             }
+    #         )
+        
+    #     # Record verification attempt
+    #     verification = VoteVerification(
+    #         vote_receipt=vote_receipt,
+    #         ip_address=ip_address,
+    #         verification_successful=True,
+    #         verified_at=datetime.now(timezone.utc)
+    #     )
+        
+    #     db.add(verification)
+    #     db.commit()
+        
+    #     election = db.query(Election).filter(
+    #         Election.id == encrypted_vote.election_id
+    #     ).first()
+        
+    #     position = db.query(Position).filter(
+    #         Position.id == encrypted_vote.position_id
+    #     ).first()
+        
+    #     return {
+    #         "verified": True,
+    #         "message": "Your vote has been verified and counted!",
+    #         "election_name": election.title if election else "Unknown",
+    #         "position_title": position.title if position else "Unknown",
+    #         "cast_at": encrypted_vote.cast_at.isoformat(),
+    #         "vote_hash": encrypted_vote.vote_hash[:16] + "...",
+    #         "tallied": encrypted_vote.tallied
+    #     }
+
     @staticmethod
     def verify_vote_receipt(
         db: Session,
         vote_receipt: str,
         ip_address: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Verify a vote receipt"""
-        
+        """Verify a vote receipt (idempotent & secure)"""
+
         encrypted_vote = db.query(EncryptedVote).filter(
             EncryptedVote.vote_receipt == vote_receipt
         ).first()
-        
+
         if not encrypted_vote:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -356,24 +408,41 @@ class SecureVotingService:
                     "message": "Verification failed"
                 }
             )
-        
-        # Record verification attempt
-        verification = VoteVerification(
-            vote_receipt=vote_receipt,
-            ip_address=ip_address,
-            verification_successful=True
-        )
-        db.add(verification)
+
+        now_utc = datetime.now(timezone.utc)
+
+        # ✅ Mark vote as verified (ONLY ONCE)
+        if not encrypted_vote.verified:
+            encrypted_vote.verified = True
+            encrypted_vote.tallied = True  # ← important for consistency
+            encrypted_vote.verified_at = now_utc
+
+        # ✅ Prevent duplicate verification records
+        existing_verification = db.query(VoteVerification).filter(
+            VoteVerification.vote_receipt == vote_receipt
+        ).first()
+
+        if not existing_verification:
+            verification = VoteVerification(
+                vote_receipt=vote_receipt,
+                ip_address=ip_address,
+                verification_successful=True,
+                verified_at=now_utc
+            )
+            db.add(verification)
+
+        db.add(encrypted_vote)
         db.commit()
-        
+        db.refresh(encrypted_vote)
+
         election = db.query(Election).filter(
             Election.id == encrypted_vote.election_id
         ).first()
-        
+
         position = db.query(Position).filter(
             Position.id == encrypted_vote.position_id
         ).first()
-        
+
         return {
             "verified": True,
             "message": "Your vote has been verified and counted!",
@@ -383,7 +452,7 @@ class SecureVotingService:
             "vote_hash": encrypted_vote.vote_hash[:16] + "...",
             "tallied": encrypted_vote.tallied
         }
-    
+
     # ==================== VOTING STATUS CHECKS ====================
     
     @staticmethod

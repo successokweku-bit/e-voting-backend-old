@@ -5,7 +5,7 @@ from sqlalchemy import func
 from datetime import datetime, timezone
 
 from app.models.database import get_db
-from app.models.models import Election, Position, Candidate, Vote, User, State, ElectionType, PoliticalParty, EncryptedVote
+from app.models.models import Election, Position, Candidate, Vote, User, State, ElectionType, PoliticalParty, EncryptedVote, VoteVerification
 from app.schemas.schemas import (
     ElectionCreate, ElectionResponse, ElectionWithPositions,
     PositionCreate, PositionResponse, 
@@ -563,57 +563,6 @@ async def get_all_parties_public(db: Session = Depends(get_db)):
 # ==================== SECURE VOTING ENDPOINTS ====================
 # Add these routes to your existing router
 
-# @router.post("/elections/{election_id}/positions/{position_id}/vote-secure", 
-#              response_model=StandardResponse[dict])
-# async def cast_secure_vote(
-#     request: Request,
-#     election_id: int,
-#     position_id: int,
-#     vote_data: VoteRequest,
-#     current_user: User = Depends(get_current_active_user),
-#     db: Session = Depends(get_db)
-# ):
-#     """
-#     Cast an encrypted, anonymous vote for a specific position
-#     Returns a vote receipt that the voter can use to verify their vote
-#     """
-#     try:
-#         # Get IP address
-#         from fastapi import Request
-#         ip_address = request.client.host if request.client else None
-        
-#         result = SecureVotingService.cast_encrypted_vote(
-#             db=db,
-#             user=current_user,
-#             election_id=election_id,
-#             position_id=position_id,
-#             candidate_id=vote_data.candidate_id,
-#             ip_address=ip_address
-#         )
-        
-#         return StandardResponse[dict](
-#             status=True,
-#             data=result,
-#             error=None,
-#             message=result["message"]
-#         )
-    
-#     except HTTPException as e:
-#         return StandardResponse[dict](
-#             status=False,
-#             data=None,
-#             error=e.detail.get("error") if isinstance(e.detail, dict) else str(e.detail),
-#             message="Failed to cast vote"
-#         )
-#     except Exception as e:
-#         return StandardResponse[dict](
-#             status=False,
-#             data=None,
-#             error=str(e),
-#             message="Failed to cast vote"
-#         )
-
-
 @router.post(
     "/elections/{election_id}/positions/{position_id}/vote-secure",
     response_model=StandardResponse[SecureVoteResult]
@@ -817,81 +766,88 @@ async def get_secure_election_statistics(
 ):
     """
     Get secure election statistics (Admin only)
-    Shows encrypted vote counts without revealing individual votes
+    Uses EncryptedVote
     """
     try:
-        from app.models.models import EncryptedVote, Position
-        
         election = db.query(Election).filter(Election.id == election_id).first()
         if not election:
-            return StandardResponse[dict](
+            return StandardResponse(
                 status=False,
                 data=None,
                 error="Election not found",
                 message="Statistics retrieval failed"
             )
-        
-        # Get all positions
-        positions = db.query(Position).filter(Position.election_id == election_id).all()
-        
+
+        positions = db.query(Position).filter(
+            Position.election_id == election_id
+        ).all()
+
         position_stats = []
         total_secure_votes = 0
-        
+
         for position in positions:
-            vote_count = db.query(EncryptedVote).filter(
+            total_votes = db.query(EncryptedVote).filter(
                 EncryptedVote.election_id == election_id,
                 EncryptedVote.position_id == position.id
             ).count()
-            
-            verified_count = db.query(EncryptedVote).filter(
+
+            verified_votes = db.query(EncryptedVote).filter(
                 EncryptedVote.election_id == election_id,
                 EncryptedVote.position_id == position.id,
-                EncryptedVote.verified == True
+                EncryptedVote.verified.is_(True)
             ).count()
-            
+
             position_stats.append({
                 "position_id": position.id,
                 "position_title": position.title,
-                "total_votes": vote_count,
-                "verified_votes": verified_count,
-                "pending_votes": vote_count - verified_count
+                "total_votes": total_votes,
+                "verified_votes": verified_votes,
+                "pending_votes": total_votes - verified_votes
             })
-            
-            total_secure_votes += vote_count
-        
-        # Get verification attempts
-        vote_receipts = db.query(EncryptedVote.vote_receipt).filter(
+
+            total_secure_votes += total_votes
+
+        # Verification attempts
+        receipts = db.query(EncryptedVote.vote_receipt).filter(
             EncryptedVote.election_id == election_id
         ).all()
-        receipt_list = [r[0] for r in vote_receipts]
-        
-        from app.models.models import VoteVerification
-        verification_count = db.query(VoteVerification).filter(
+
+        receipt_list = [r[0] for r in receipts]
+
+        verification_attempts = db.query(VoteVerification).filter(
             VoteVerification.vote_receipt.in_(receipt_list)
         ).count() if receipt_list else 0
-        
-        return StandardResponse[dict](
+
+        # ✅ timezone-aware comparison
+        now_utc = datetime.now(timezone.utc)
+
+        election_status = (
+            "active"
+            if election.start_date <= now_utc <= election.end_date
+            else "ended"
+        )
+
+        return StandardResponse(
             status=True,
             data={
-                "election_id": election_id,
+                "election_id": election.id,
                 "election_name": election.title,
                 "total_secure_votes": total_secure_votes,
-                "verification_attempts": verification_count,
+                "verification_attempts": verification_attempts,
                 "position_statistics": position_stats,
-                "election_status": "active" if datetime.utcnow() < election.end_date else "ended"
+                "election_status": election_status
             },
             error=None,
             message="Statistics retrieved successfully"
         )
-    
+
     except Exception as e:
-        return StandardResponse[dict](
+        return StandardResponse(
             status=False,
             data=None,
             error=str(e),
             message="Failed to get statistics"
         )
-    
 
 # ================================
 # GET UPCOMING ELECTIONS
