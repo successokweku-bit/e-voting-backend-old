@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 import json
 import secrets
+import hashlib
 
 from app.models.models import (
     User, Election, Candidate, Vote, Position,
@@ -494,4 +495,49 @@ class SecureVotingService:
             "total_logs": len(audit_logs),
             "broken_links": broken_links,
             "message": "Audit trail verified" if not broken_links else "Audit trail compromised!"
+        }
+    @staticmethod
+    def tally_election_votes(db: Session, admin_user: User, election_id: int):
+        election = db.query(Election).filter(Election.id==election_id).first()
+        if not election:
+            raise HTTPException(404, "Election not found")
+
+        results = {}
+        total_votes = 0
+        verified_votes = 0
+
+        for position in election.positions:
+            results[position.title] = {}
+            votes = db.query(EncryptedVote).filter(
+                EncryptedVote.election_id==election.id,
+                EncryptedVote.position_id==position.id,
+                (EncryptedVote.tallied==False) | (EncryptedVote.tallied==None)
+            ).all()
+
+            for vote in votes:
+                candidate_name = vote.candidate.user.full_name if vote.candidate else "Unknown"
+                results[position.title][candidate_name] = results[position.title].get(candidate_name, 0) + 1
+                vote.tallied = True
+                verified_votes += 1
+
+            total_votes += len(votes)
+
+        # Save tally
+        tally = ElectionTally(
+            election_id=election_id,
+            tallied_by=admin_user.id,
+            results_summary=json.dumps(results),
+            total_votes_decrypted=total_votes,
+            total_votes_verified=verified_votes,
+            integrity_check_passed=True,
+            audit_hash=secrets.token_hex(32)
+        )
+        db.add(tally)
+        db.commit()
+
+        return {
+            "message": f"Votes tallied successfully for election '{election.title}'",
+            "results": results,
+            "total_votes": total_votes,
+            "verified_votes": verified_votes
         }

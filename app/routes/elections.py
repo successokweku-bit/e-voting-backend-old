@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session, joinedload
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from sqlalchemy import func
 from datetime import datetime, timezone
 
 from app.models.database import get_db
-from app.models.models import Election, Position, Candidate, Vote, User, State, ElectionType, PoliticalParty
+from app.models.models import Election, Position, Candidate, Vote, User, State, ElectionType, PoliticalParty, EncryptedVote
 from app.schemas.schemas import (
     ElectionCreate, ElectionResponse, ElectionWithPositions,
     PositionCreate, PositionResponse, 
@@ -427,14 +427,14 @@ async def get_candidates_for_position(
 #             message="Error creating position"
 #         )
 
-
 @router.get("/elections/{election_id}/results", response_model=StandardResponse[dict])
-async def get_election_results(
-    election_id: int,
-    db: Session = Depends(get_db)
-):
-    """Get detailed election results with party information (Public)"""
+async def get_election_results(election_id: int, db: Session = Depends(get_db)):
+    """
+    Get detailed election results with party information (Public)
+    Uses EncryptedVote instead of Vote
+    """
     try:
+        # Fetch election
         election = db.query(Election).filter(Election.id == election_id).first()
         if not election:
             return StandardResponse[dict](
@@ -443,25 +443,27 @@ async def get_election_results(
                 error="Election not found",
                 message="Results retrieval failed"
             )
-        
-        # Get all votes for this election
-        votes = db.query(Vote).filter(Vote.election_id == election_id).all()
-        total_votes = len(votes)
-        
-        # Get all candidates in this election with their parties
+
+        # Fetch candidates with user and party info
         candidates = db.query(Candidate).join(Position).filter(
             Position.election_id == election_id
-        ).options(joinedload(Candidate.party)).all()
-        
-        # Calculate results by party
+        ).options(
+            joinedload(Candidate.user),
+            joinedload(Candidate.party),
+            joinedload(Candidate.election)
+        ).all()
+
+        total_votes = 0
         party_results = {}
+
         for candidate in candidates:
-            candidate_votes = db.query(Vote).filter(Vote.candidate_id == candidate.id).count()
-            
+            vote_count = db.query(EncryptedVote).filter(EncryptedVote.candidate_id == candidate.id).count()
+            total_votes += vote_count
+
             party_id = candidate.party.id if candidate.party else 0
             party_name = candidate.party.name if candidate.party else "Independent"
             party_acronym = candidate.party.acronym if candidate.party else "IND"
-            
+
             if party_id not in party_results:
                 party_results[party_id] = {
                     "party": candidate.party,
@@ -470,49 +472,63 @@ async def get_election_results(
                     "party_name": party_name,
                     "party_acronym": party_acronym
                 }
-            
-            party_results[party_id]["total_votes"] += candidate_votes
+
+            party_results[party_id]["total_votes"] += vote_count
+
+            # Prepare candidate data
+            candidate_data = CandidateResponse(
+                id=candidate.id,
+                user_id=candidate.user_id,
+                name=candidate.user.full_name if candidate.user else "Unknown",
+                position_id=candidate.position_id,
+                party_id=candidate.party_id,
+                bio=candidate.bio,
+                manifestos=candidate.manifestos,
+                election=Election(
+                    id=election.id,
+                    title=election.title,
+                    description=election.description,
+                    election_type=election.election_type.value,
+                    state=election.state.value if election.state else None,
+                    start_date=election.start_date,
+                    end_date=election.end_date
+                )
+            )
             party_results[party_id]["candidates"].append({
-                "candidate": candidate,
-                "votes": candidate_votes
+                "candidate": candidate_data,
+                "votes": vote_count
             })
-        
+
         # Convert to response format
         results_data = {
             "election": ElectionResponse.model_validate(election),
             "total_votes": total_votes,
-            "party_results": [
-                {
-                    "party": PoliticalPartyResponse.model_validate(party_data["party"]) if party_data["party"] else {
-                        "id": 0,
-                        "name": party_data["party_name"],
-                        "acronym": party_data["party_acronym"],
-                        "logo_url": None,
-                        "description": "Independent candidate",
-                        "founded_date": None,
-                        "created_at": datetime.utcnow()
-                    },
-                    "total_votes": party_data["total_votes"],
-                    "percentage": (party_data["total_votes"] / total_votes * 100) if total_votes > 0 else 0,
-                    "candidates": [
-                        {
-                            "candidate": CandidateResponse.model_validate(candidate_data["candidate"]),
-                            "votes": candidate_data["votes"]
-                        }
-                        for candidate_data in party_data["candidates"]
-                    ]
-                }
-                for party_data in party_results.values()
-            ]
+            "party_results": []
         }
-        
+
+        for party_data in party_results.values():
+            results_data["party_results"].append({
+                "party": PoliticalPartyResponse.model_validate(party_data["party"]) if party_data["party"] else {
+                    "id": 0,
+                    "name": party_data["party_name"],
+                    "acronym": party_data["party_acronym"],
+                    "logo_url": None,
+                    "description": "Independent candidate",
+                    "founded_date": None,
+                    "created_at": datetime.utcnow()
+                },
+                "total_votes": party_data["total_votes"],
+                "percentage": (party_data["total_votes"] / total_votes * 100) if total_votes > 0 else 0,
+                "candidates": party_data["candidates"]
+            })
+
         return StandardResponse[dict](
             status=True,
             data=results_data,
             error=None,
             message="Election results retrieved successfully"
         )
-        
+
     except Exception as e:
         return StandardResponse[dict](
             status=False,
@@ -520,7 +536,7 @@ async def get_election_results(
             error=str(e),
             message="Error retrieving election results"
         )
-
+        
 @router.get("/parties", response_model=StandardResponse[List[PoliticalPartyResponse]])
 async def get_all_parties_public(db: Session = Depends(get_db)):
     """Get all political parties (Public)"""
@@ -688,45 +704,9 @@ async def verify_vote_receipt(
 
 
 @router.post("/elections/{election_id}/tally-secure", response_model=StandardResponse[dict])
-async def tally_election_secure(
-    election_id: int,
-    current_user: User = Depends(get_current_super_admin),
-    db: Session = Depends(get_db)
-):
-    """
-    Tally votes for an election using encrypted votes (Super Admin only)
-    
-    Decrypts votes, verifies integrity, and counts votes for all positions
-    """
-    try:
-        result = SecureVotingService.tally_election_votes(
-            db=db,
-            admin_user=current_user,
-            election_id=election_id
-        )
-        
-        return StandardResponse[dict](
-            status=True,
-            data=result,
-            error=None,
-            message=result["message"]
-        )
-    
-    except HTTPException as e:
-        return StandardResponse[dict](
-            status=False,
-            data=None,
-            error=e.detail.get("error") if isinstance(e.detail, dict) else str(e.detail),
-            message="Tally failed"
-        )
-    except Exception as e:
-        return StandardResponse[dict](
-            status=False,
-            data=None,
-            error=str(e),
-            message="Failed to tally votes"
-        )
-
+async def tally_secure_votes(election_id: int, current_user: User = Depends(get_current_super_admin), db: Session = Depends(get_db)):
+    result = SecureVotingService.tally_election_votes(db, current_user, election_id)
+    return StandardResponse(status=True, data=result, error=None, message=result["message"])
 
 @router.get("/elections/{election_id}/my-voting-status", response_model=StandardResponse[dict])
 async def get_my_voting_status(
