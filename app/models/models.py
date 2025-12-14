@@ -430,8 +430,9 @@ class ElectionTally(Base):
     tallied_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     
     # When
-    tallied_at = Column(DateTime(timezone=True), default=func.now, nullable=False)
-    
+    # tallied_at = Column(DateTime(timezone=True), default=func.now, nullable=False)
+    tallied_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
     # Results summary (JSON string)
     results_summary = Column(Text, nullable=True)
     
