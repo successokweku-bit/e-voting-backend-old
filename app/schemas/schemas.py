@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
+from pydantic import BaseModel, EmailStr, field_validator, ConfigDict, Field
 from typing import Optional, List, Generic, TypeVar, Any
 from datetime import datetime, date
 from enum import Enum
@@ -177,6 +177,7 @@ class ElectionResponse(ElectionBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class PositionBase(BaseModel):
     title: str
     description: Optional[str] = None
@@ -205,7 +206,7 @@ class CandidateCreate(BaseModel):
     election_id: int
     party_id: Optional[int] = None
     bio: Optional[str] = None
-    manifestos: Optional[List[ManifestoItem]] = []
+    manifestos: Optional[List[ManifestoItem]] = Field(default_factory=list)
 
 
 # class CandidateResponse(CandidateBase):
@@ -276,14 +277,18 @@ class VoteResponse(BaseModel):
 # -------------------------
 # EXTENDED SCHEMAS
 # -------------------------
-class CandidateWithVotes(CandidateResponse):
-    votes_count: int = 0
 
+class SecureVoteResult(BaseModel):
+    vote_receipt: str
+    message: str
+
+    model_config = ConfigDict(from_attributes=True)
+    
 class PositionWithCandidates(PositionResponse):
-    candidates: List[CandidateWithVotes] = []
+    candidates: List[CandidateWithVotes] = Field(default_factory=list)
 
 class ElectionWithPositions(ElectionResponse):
-    positions: List[PositionWithCandidates] = []
+    positions: List[PositionWithCandidates] = Field(default_factory=list)
     total_votes: int = 0
 
 class VoterProfile(BaseModel):
