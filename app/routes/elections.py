@@ -661,7 +661,7 @@ async def cast_secure_vote(
 @router.post("/vote/verify-receipt", response_model=StandardResponse[dict])
 async def verify_vote_receipt(
     request: Request,
-    vote_receipt: str = Query(..., description="Vote receipt to verify"),
+    vote_receipt: str = Form(..., description="Vote receipt to verify"),
     db: Session = Depends(get_db)
 ):
     """
