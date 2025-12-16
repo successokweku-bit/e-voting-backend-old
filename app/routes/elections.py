@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Form
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional, Dict, Any
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from datetime import datetime, timezone
 
 from app.models.database import get_db
@@ -31,20 +31,59 @@ router = APIRouter()
 
 # === EXISTING ENDPOINTS (keeping them as they are) ===
 
+# @router.get("/elections/active", response_model=StandardResponse[List[ElectionResponse]])
+# async def get_active_elections(db: Session = Depends(get_db)):
+#     """Get all active elections (Public)"""
+#     try:
+#         elections = db.query(Election).filter(Election.is_active == True).all()
+#         elections_response = [ElectionResponse.model_validate(election) for election in elections]
+        
+#         return StandardResponse[List[ElectionResponse]](
+#             status=True,
+#             data=elections_response,
+#             error=None,
+#             message=f"Found {len(elections_response)} active elections"
+#         )
+        
+#     except Exception as e:
+#         return StandardResponse[List[ElectionResponse]](
+#             status=False,
+#             data=None,
+#             error=str(e),
+#             message="Error retrieving active elections"
+#         )
+
 @router.get("/elections/active", response_model=StandardResponse[List[ElectionResponse]])
 async def get_active_elections(db: Session = Depends(get_db)):
     """Get all active elections (Public)"""
     try:
-        elections = db.query(Election).filter(Election.is_active == True).all()
-        elections_response = [ElectionResponse.model_validate(election) for election in elections]
-        
+        now = datetime.utcnow()
+
+        elections = (
+            db.query(Election)
+            .filter(
+                Election.is_active == True,
+                Election.start_date <= now,
+                or_(
+                    Election.end_date == None,
+                    Election.end_date >= now
+                )
+            )
+            .all()
+        )
+
+        elections_response = [
+            ElectionResponse.model_validate(election)
+            for election in elections
+        ]
+
         return StandardResponse[List[ElectionResponse]](
             status=True,
             data=elections_response,
             error=None,
             message=f"Found {len(elections_response)} active elections"
         )
-        
+
     except Exception as e:
         return StandardResponse[List[ElectionResponse]](
             status=False,
@@ -52,7 +91,7 @@ async def get_active_elections(db: Session = Depends(get_db)):
             error=str(e),
             message="Error retrieving active elections"
         )
-
+    
 @router.get("/elections/{election_id}", response_model=StandardResponse[ElectionWithPositions])
 async def get_election_details(
     election_id: int,
