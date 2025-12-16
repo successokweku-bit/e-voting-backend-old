@@ -274,16 +274,6 @@ class VoteResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-# -------------------------
-# EXTENDED SCHEMAS
-# -------------------------
-
-class SecureVoteResult(BaseModel):
-    vote_receipt: str
-    message: str
-
-    model_config = ConfigDict(from_attributes=True)
-    
 class PositionWithCandidates(PositionResponse):
     candidates: List[CandidateWithVotes] = Field(default_factory=list)
 
@@ -324,3 +314,169 @@ class ElectionResultsDetailed(BaseModel):
 
 #     class Config:
 #         from_attributes = True
+
+
+# Update the existing SecureVoteResult schema to include email_sent field
+class SecureVoteResult(BaseModel):
+    """Response model for secure vote casting"""
+    message: str
+    vote_receipt: str
+    election: str
+    position: str
+    candidate: str
+    timestamp: str
+    instructions: str
+    email_sent: Optional[bool] = False 
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+#  New schema for vote details by receipt
+class VotePartyInfo(BaseModel):
+    """Party information in vote details"""
+    name: str
+    acronym: str
+    logo_url: Optional[str] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class VoteCandidateInfo(BaseModel):
+    """Candidate information in vote details"""
+    id: int
+    name: str
+    bio: Optional[str] = None
+    party: Optional[VotePartyInfo] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class VoteElectionInfo(BaseModel):
+    """Election information in vote details"""
+    id: int
+    title: str
+    description: Optional[str] = None
+    election_type: Optional[str] = None
+    state: Optional[str] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class VotePositionInfo(BaseModel):
+    """Position information in vote details"""
+    id: int
+    title: str
+    description: Optional[str] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class VoteDetailsByReceipt(BaseModel):
+    """Complete vote details retrieved by receipt"""
+    vote_receipt: str
+    election: Optional[VoteElectionInfo] = None
+    position: Optional[VotePositionInfo] = None
+    candidate: Optional[VoteCandidateInfo] = None
+    cast_at: Optional[str] = None
+    verified: bool = False
+    tallied: bool = False
+    vote_hash: Optional[str] = None
+    status: str
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+# New schemas for "My Votes" endpoint
+class MyVoteParty(BaseModel):
+    """Party information in my votes"""
+    id: int
+    name: str
+    acronym: str
+    logo_url: Optional[str] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MyVoteCandidate(BaseModel):
+    """Candidate information in my votes"""
+    id: int
+    name: str
+    bio: Optional[str] = None
+    manifestos: Optional[List[str]] = []
+    party: Optional[MyVoteParty] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MyVotePosition(BaseModel):
+    """Position information in my votes"""
+    id: int
+    title: str
+    description: Optional[str] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MyVoteElection(BaseModel):
+    """Election information in my votes"""
+    id: int
+    title: str
+    description: Optional[str] = None
+    election_type: Optional[str] = None
+    state: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    is_active: bool = False
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MyVoteInfo(BaseModel):
+    """Individual vote information"""
+    vote_receipt: str
+    position: MyVotePosition
+    candidate: Optional[MyVoteCandidate] = None
+    cast_at: Optional[str] = None
+    verified: bool = False
+    status: str
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MyVotesByElection(BaseModel):
+    """Votes grouped by election"""
+    election: MyVoteElection
+    votes: List[MyVoteInfo]
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MyVotesComplete(BaseModel):
+    """Complete vote information (flat)"""
+    vote_id: int
+    vote_receipt: str
+    election: MyVoteElection
+    position: MyVotePosition
+    candidate: Optional[MyVoteCandidate] = None
+    cast_at: Optional[str] = None
+    verified: bool = False
+    tallied: bool = False
+    status: str
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MyVotesResponse(BaseModel):
+    """Response for my votes endpoint"""
+    total_votes: int
+    total_elections_participated: int
+    votes_by_election: List[MyVotesByElection]
+    all_votes: List[MyVotesComplete]
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+# Example usage in route response model:
+# @router.get("/my-votes", response_model=StandardResponse[MyVotesResponse])
+# async def get_my_votes(...):
+#     ...
