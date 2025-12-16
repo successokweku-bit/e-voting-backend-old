@@ -676,7 +676,7 @@ async def get_my_votes(
 @router.post("/elections/{election_id}/tally-secure", response_model=StandardResponse[dict])
 async def tally_secure_votes(
     election_id: int, 
-    current_user: User = Depends(get_current_super_admin), 
+    current_user: User = Depends(get_current_active_user), 
     db: Session = Depends(get_db)
 ):
     result = SecureVotingService.tally_election_votes(db, current_user, election_id)
@@ -774,7 +774,7 @@ async def verify_audit_trail(
 @router.get("/elections/{election_id}/secure-statistics", response_model=StandardResponse[dict])
 async def get_secure_election_statistics(
     election_id: int,
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Get secure election statistics (Admin only)"""
