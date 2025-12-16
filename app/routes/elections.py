@@ -857,19 +857,27 @@ async def get_secure_election_statistics(
             message="Failed to get statistics"
         )
 
-@router.get("/upcoming", response_model=StandardResponse)
+@router.get("/upcoming",response_model=StandardResponse[List[ElectionResponse]])
 def get_upcoming_elections(db: Session = Depends(get_db)):
     now = datetime.now(timezone.utc)
+
     elections = (
         db.query(Election)
         .filter(Election.start_date > now)
         .order_by(Election.start_date.asc())
         .all()
     )
-    return StandardResponse(
+
+    elections_response = [
+        ElectionResponse.model_validate(election)
+        for election in elections
+    ]
+
+    return StandardResponse[List[ElectionResponse]](
         status=True,
         message="Upcoming elections retrieved successfully",
-        data=elections
+        data=elections_response,
+        error=None
     )
 
 @router.get("/past", response_model=StandardResponse[list[ElectionResponse]])
