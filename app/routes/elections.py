@@ -5,22 +5,23 @@ from sqlalchemy import func
 from datetime import datetime, timezone
 
 from app.models.database import get_db
-from app.models.models import Election, Position, Candidate, Vote, User, State, ElectionType, PoliticalParty, EncryptedVote, VoteVerification
+from app.models.models import (
+    Election, Position, Candidate, Vote, User, State, ElectionType, 
+    PoliticalParty, EncryptedVote, VoteVerification
+)
 from app.schemas.schemas import (
     ElectionCreate, ElectionResponse, ElectionWithPositions,
     PositionCreate, PositionResponse, 
-    CandidateCreate, CandidateResponse,CandidateElectionResponse,
+    CandidateCreate, CandidateResponse, CandidateElectionResponse,
     VoteRequest, VoteResponse, StandardResponse, PoliticalPartyResponse,
-    CandidateWithVotes, PositionWithCandidates, PartyResponse,SecureVoteResult
+    CandidateWithVotes, PositionWithCandidates, PartyResponse, SecureVoteResult
 )
 
 from app.core.roles import get_current_admin
 from app.routes.auth import get_current_active_user
 from app.services.secure_voting_service import SecureVotingService
 from app.core.roles import get_current_super_admin
- 
-from app.services.secure_voting_service import SecureVotingService
-from app.core.roles import get_current_super_admin
+from app.services.email_service import email_service
 
 def get_current_utc_time():
     """Get current UTC time as timezone-aware datetime"""
@@ -28,7 +29,7 @@ def get_current_utc_time():
 
 router = APIRouter()
 
-# === PUBLIC ELECTION ENDPOINTS ===
+# === EXISTING ENDPOINTS (keeping them as they are) ===
 
 @router.get("/elections/active", response_model=StandardResponse[List[ElectionResponse]])
 async def get_active_elections(db: Session = Depends(get_db)):
@@ -68,7 +69,6 @@ async def get_election_details(
                 message="Election retrieval failed"
             )
         
-        # Get positions with candidates and vote counts
         positions = db.query(Position).filter(Position.election_id == election_id).all()
         
         positions_with_candidates = []
@@ -77,18 +77,16 @@ async def get_election_details(
             
             candidates_with_votes = []
             for candidate in candidates:
-                # Skip candidates with missing user
                 if not candidate.user:
                     print(f"⚠️  Warning: Candidate {candidate.id} has no associated user")
                     continue
                 
                 vote_count = db.query(Vote).filter(Vote.candidate_id == candidate.id).count()
                 
-                # Manually construct candidate data
                 candidate_data = CandidateWithVotes(
                     id=candidate.id,
                     user_id=candidate.user_id,
-                    name=candidate.user.full_name,  # Get name from user relationship
+                    name=candidate.user.full_name,
                     position_id=candidate.position_id,
                     party_id=candidate.party_id,
                     bio=candidate.bio,
@@ -106,7 +104,6 @@ async def get_election_details(
                 )
                 candidates_with_votes.append(candidate_data)
             
-            # Manually construct position data
             position_data = PositionWithCandidates(
                 id=position.id,
                 title=position.title,
@@ -118,7 +115,6 @@ async def get_election_details(
         
         total_votes = db.query(Vote).filter(Vote.election_id == election_id).count()
         
-        # Manually construct election data
         election_data = ElectionWithPositions(
             id=election.id,
             title=election.title,
@@ -150,134 +146,6 @@ async def get_election_details(
             error=str(e),
             message="Error retrieving election details"
         )
-# === VOTING ENDPOINTS (Authenticated Users) ===
-
-@router.post("/elections/{election_id}/vote", response_model=StandardResponse[VoteResponse])
-async def cast_vote(
-    election_id: int,
-    vote_data: VoteRequest,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    """Cast a vote in an election"""
-    try:
-        # Check if election exists and is active
-        election = db.query(Election).filter(
-            Election.id == election_id,
-            Election.is_active == True
-        ).first()
-        
-        if not election:
-            return StandardResponse[VoteResponse](
-                status=False,
-                data=None,
-                error="Election not found or not active",
-                message="Vote failed"
-            )
-        
-        # Check if user has already voted in this election
-        existing_vote = db.query(Vote).filter(
-            Vote.user_id == current_user.id,
-            Vote.election_id == election_id
-        ).first()
-        
-        if existing_vote:
-            return StandardResponse[VoteResponse](
-                status=False,
-                data=None,
-                error="You have already voted in this election",
-                message="Vote failed"
-            )
-        
-        # Check if candidate exists and belongs to this election
-        candidate = db.query(Candidate).join(Position).filter(
-            Candidate.id == vote_data.candidate_id,
-            Position.election_id == election_id
-        ).first()
-        
-        if not candidate:
-            return StandardResponse[VoteResponse](
-                status=False,
-                data=None,
-                error="Candidate not found in this election",
-                message="Vote failed"
-            )
-        
-        # Check state eligibility (for state/local elections)
-        if election.election_type != ElectionType.FEDERAL and election.state:
-            if current_user.state_of_residence != election.state:
-                return StandardResponse[VoteResponse](
-                    status=False,
-                    data=None,
-                    error=f"Only residents of {election.state.value} can vote in this election",
-                    message="Vote failed"
-                )
-        
-        # Create vote (encrypted_vote is placeholder for now)
-        vote = Vote(
-            user_id=current_user.id,
-            candidate_id=vote_data.candidate_id,
-            election_id=election_id,
-            encrypted_vote=f"encrypted_{current_user.id}_{vote_data.candidate_id}"  # Placeholder
-        )
-        
-        db.add(vote)
-        db.commit()
-        db.refresh(vote)
-        
-        vote_response = VoteResponse(
-            vote_id=vote.id,
-            message="Vote cast successfully"
-        )
-        
-        return StandardResponse[VoteResponse](
-            status=True,
-            data=vote_response,
-            error=None,
-            message="Vote cast successfully"
-        )
-        
-    except Exception as e:
-        db.rollback()
-        return StandardResponse[VoteResponse](
-            status=False,
-            data=None,
-            error=str(e),
-            message="Error casting vote"
-        )
-
-@router.get("/elections/{election_id}/my-vote", response_model=StandardResponse[dict])
-async def get_my_vote(
-    election_id: int,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    """Check if user has voted in an election"""
-    try:
-        vote = db.query(Vote).filter(
-            Vote.user_id == current_user.id,
-            Vote.election_id == election_id
-        ).first()
-        
-        has_voted = vote is not None
-        
-        return StandardResponse[dict](
-            status=True,
-            data={
-                "has_voted": has_voted,
-                "voted_at": vote.created_at if vote else None
-            },
-            error=None,
-            message="Vote status retrieved successfully"
-        )
-        
-    except Exception as e:
-        return StandardResponse[dict](
-            status=False,
-            data=None,
-            error=str(e),
-            message="Error retrieving vote status"
-        )
 
 @router.get(
     "/elections/{election_id}/positions/{position_id}/candidates",
@@ -300,8 +168,6 @@ async def get_candidates_for_position(
 
         result = []
         for c in candidates:
-
-            # Election Info
             election_info = Election(
                 id=c.election.id,
                 title=c.election.title,
@@ -312,7 +178,6 @@ async def get_candidates_for_position(
                 end_date=c.election.end_date,
             )
 
-            # Party info
             party_info = None
             if c.party:
                 party_info = PartyResponse(
@@ -322,7 +187,6 @@ async def get_candidates_for_position(
                     logo_url=c.party.logo_url
                 )
 
-            # Candidate Response
             result.append(
                 CandidateElectionResponse(
                     id=c.id,
@@ -350,91 +214,11 @@ async def get_candidates_for_position(
             error=str(e),
             message="Error retrieving candidates"
         )
-    
-# === ADMIN ELECTION MANAGEMENT ===
-
-# @router.post("/elections", response_model=StandardResponse[ElectionResponse])
-# async def create_election(
-#     election_data: ElectionCreate,
-#     current_user: User = Depends(get_current_admin),
-#     db: Session = Depends(get_db)
-# ):
-#     """Create a new election (Admin only)"""
-#     try:
-#         # Validate state requirement for state/local elections
-#         if election_data.election_type in [ElectionType.STATE, ElectionType.LOCAL]:
-#             if not election_data.state:
-#                 return StandardResponse[ElectionResponse](
-#                     status=False,
-#                     data=None,
-#                     error="State is required for state and local elections",
-#                     message="Election creation failed"
-#                 )
-        
-#         election = Election(**election_data.model_dump())
-        
-#         db.add(election)
-#         db.commit()
-#         db.refresh(election)
-        
-#         election_response = ElectionResponse.model_validate(election)
-        
-#         return StandardResponse[ElectionResponse](
-#             status=True,
-#             data=election_response,
-#             error=None,
-#             message="Election created successfully"
-#         )
-        
-#     except Exception as e:
-#         db.rollback()
-#         return StandardResponse[ElectionResponse](
-#             status=False,
-#             data=None,
-#             error=str(e),
-#             message="Error creating election"
-#         )
-
-# @router.post("/positions", response_model=StandardResponse[PositionResponse])
-# async def create_position(
-#     position_data: PositionCreate,
-#     current_user: User = Depends(get_current_admin),
-#     db: Session = Depends(get_db)
-# ):
-#     """Create a new position (Admin only)"""
-#     try:
-#         position = Position(**position_data.model_dump())
-        
-#         db.add(position)
-#         db.commit()
-#         db.refresh(position)
-        
-#         position_response = PositionResponse.model_validate(position)
-        
-#         return StandardResponse[PositionResponse](
-#             status=True,
-#             data=position_response,
-#             error=None,
-#             message="Position created successfully"
-#         )
-        
-#     except Exception as e:
-#         db.rollback()
-#         return StandardResponse[PositionResponse](
-#             status=False,
-#             data=None,
-#             error=str(e),
-#             message="Error creating position"
-#         )
 
 @router.get("/elections/{election_id}/results", response_model=StandardResponse[dict])
 async def get_election_results(election_id: int, db: Session = Depends(get_db)):
-    """
-    Get detailed election results with party information (Public)
-    Uses EncryptedVote instead of Vote
-    """
+    """Get detailed election results with party information (Public)"""
     try:
-        # Fetch election
         election = db.query(Election).filter(Election.id == election_id).first()
         if not election:
             return StandardResponse[dict](
@@ -444,7 +228,6 @@ async def get_election_results(election_id: int, db: Session = Depends(get_db)):
                 message="Results retrieval failed"
             )
 
-        # Fetch candidates with user and party info
         candidates = db.query(Candidate).join(Position).filter(
             Position.election_id == election_id
         ).options(
@@ -475,7 +258,6 @@ async def get_election_results(election_id: int, db: Session = Depends(get_db)):
 
             party_results[party_id]["total_votes"] += vote_count
 
-            # Prepare candidate data
             candidate_data = CandidateResponse(
                 id=candidate.id,
                 user_id=candidate.user_id,
@@ -499,7 +281,6 @@ async def get_election_results(election_id: int, db: Session = Depends(get_db)):
                 "votes": vote_count
             })
 
-        # Convert to response format
         results_data = {
             "election": ElectionResponse.model_validate(election),
             "total_votes": total_votes,
@@ -558,55 +339,8 @@ async def get_all_parties_public(db: Session = Depends(get_db)):
             error=str(e),
             message="Error retrieving political parties"
         )
-    
 
 # ==================== SECURE VOTING ENDPOINTS ====================
-# Add these routes to your existing router
-
-# @router.post(
-#     "/elections/{election_id}/positions/{position_id}/vote-secure",
-#     response_model=StandardResponse[SecureVoteResult]
-# )
-# async def cast_secure_vote(
-#     request: Request,
-#     election_id: int,
-#     position_id: int,
-#     vote_data: VoteRequest,
-#     current_user: User = Depends(get_current_active_user),
-#     db: Session = Depends(get_db)
-# ):
-#     try:
-#         ip_address = request.client.host if request.client else None
-
-#         result = SecureVotingService.cast_encrypted_vote(
-#             db=db,
-#             user=current_user,
-#             election_id=election_id,
-#             position_id=position_id,
-#             candidate_id=vote_data.candidate_id,
-#             ip_address=ip_address
-#         )
-
-#         return StandardResponse(
-#             status=True,
-#             data=SecureVoteResult.model_validate(result),
-#             message=result["message"]
-#         )
-
-#     except HTTPException as e:
-#         return StandardResponse(
-#             status=False,
-#             error=e.detail.get("error") if isinstance(e.detail, dict) else str(e.detail),
-#             message="Failed to cast vote"
-#         )
-
-#     except Exception as e:
-#         return StandardResponse(
-#             status=False,
-#             error=str(e),
-#             message="Failed to cast vote"
-#         )
-
 
 @router.post(
     "/elections/{election_id}/positions/{position_id}/vote-secure",
@@ -616,25 +350,49 @@ async def cast_secure_vote(
     request: Request,
     election_id: int,
     position_id: int,
-    # === CHANGE HERE: Use Form for form-data fields ===
     candidate_id: int = Form(...),
-    # ==================================================
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
+    """
+    Cast a secure encrypted vote and automatically send receipt via email
+    """
     try:
         ip_address = request.client.host if request.client else None
 
+        # Cast the vote
         result = SecureVotingService.cast_encrypted_vote(
             db=db,
             user=current_user,
             election_id=election_id,
             position_id=position_id,
-            # === CHANGE HERE: Pass the extracted candidate_id directly ===
             candidate_id=candidate_id,
-            # ===========================================================
             ip_address=ip_address
         )
+
+        # 🆕 Send email with vote receipt
+        try:
+            email_sent = email_service.send_vote_receipt_email(
+                user_email=current_user.email,
+                user_name=current_user.full_name,
+                vote_receipt=result["vote_receipt"],
+                election_name=result["election"],
+                position_name=result["position"],
+                candidate_name=result["candidate"],
+                timestamp=result["timestamp"]
+            )
+            
+            if email_sent:
+                result["email_sent"] = True
+                result["message"] = "Vote cast successfully! Receipt sent to your email."
+            else:
+                result["email_sent"] = False
+                result["message"] = "Vote cast successfully! (Email delivery failed, but your receipt is displayed below)"
+                
+        except Exception as email_error:
+            print(f"⚠️ Email sending failed: {str(email_error)}")
+            result["email_sent"] = False
+            result["message"] = "Vote cast successfully! (Email delivery failed, but your receipt is displayed below)"
 
         return StandardResponse(
             status=True,
@@ -643,7 +401,6 @@ async def cast_secure_vote(
         )
 
     except HTTPException as e:
-        # ... (error handling remains the same)
         return StandardResponse(
             status=False,
             error=e.detail.get("error") if isinstance(e.detail, dict) else str(e.detail),
@@ -651,59 +408,238 @@ async def cast_secure_vote(
         )
 
     except Exception as e:
-        # ... (error handling remains the same)
         return StandardResponse(
             status=False,
             error=str(e),
             message="Failed to cast vote"
         )
-    
-@router.post("/vote/verify-receipt", response_model=StandardResponse[dict])
-async def verify_vote_receipt(
-    request: Request,
-    vote_receipt: str = Form(..., description="Vote receipt to verify"),
+
+@router.get("/vote/details-by-receipt", response_model=StandardResponse[dict])
+async def get_vote_details_by_receipt(
+    vote_receipt: str = Query(..., description="Vote receipt code"),
     db: Session = Depends(get_db)
 ):
     """
-    Verify a vote receipt (public endpoint - no authentication required)
+    🆕 Get vote details using receipt code (Public - no authentication required)
     
-    Allows voters to confirm their vote was counted without revealing their identity
+    This allows voters to look up their vote information using just their receipt
     """
     try:
-        # Get IP address
-        ip_address = request.client.host if request.client else None
-        
-        result = SecureVotingService.verify_vote_receipt(
-            db=db,
-            vote_receipt=vote_receipt,
-            ip_address=ip_address
+        # Find the encrypted vote by receipt
+        encrypted_vote = db.query(EncryptedVote).filter(
+            EncryptedVote.vote_receipt == vote_receipt
+        ).first()
+
+        if not encrypted_vote:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Vote receipt not found",
+                message="Invalid receipt code"
+            )
+
+        # Get related data
+        election = db.query(Election).filter(
+            Election.id == encrypted_vote.election_id
+        ).first()
+
+        position = db.query(Position).filter(
+            Position.id == encrypted_vote.position_id
+        ).first()
+
+        candidate = db.query(Candidate).options(
+            joinedload(Candidate.user),
+            joinedload(Candidate.party)
+        ).filter(
+            Candidate.id == encrypted_vote.candidate_id
+        ).first()
+
+        # Build response
+        vote_details = {
+            "vote_receipt": vote_receipt,
+            "election": {
+                "id": election.id,
+                "title": election.title,
+                "description": election.description,
+                "election_type": election.election_type.value if election.election_type else None,
+                "state": election.state.value if election.state else None
+            } if election else None,
+            "position": {
+                "id": position.id,
+                "title": position.title,
+                "description": position.description
+            } if position else None,
+            "candidate": {
+                "id": candidate.id,
+                "name": candidate.user.full_name if candidate.user else "Unknown",
+                "bio": candidate.bio,
+                "party": {
+                    "name": candidate.party.name,
+                    "acronym": candidate.party.acronym,
+                    "logo_url": candidate.party.logo_url
+                } if candidate.party else None
+            } if candidate else None,
+            "cast_at": encrypted_vote.cast_at.isoformat() if encrypted_vote.cast_at else None,
+            "verified": encrypted_vote.verified,
+            "tallied": encrypted_vote.tallied,
+            "vote_hash": encrypted_vote.vote_hash[:16] + "..." if encrypted_vote.vote_hash else None,
+            "status": "Verified and Counted" if encrypted_vote.tallied else "Pending Verification"
+        }
+
+        return StandardResponse[dict](
+            status=True,
+            data=vote_details,
+            error=None,
+            message="Vote details retrieved successfully"
         )
+
+    except Exception as e:
+        print(f"❌ Error retrieving vote details: {str(e)}")
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Failed to retrieve vote details"
+        )
+
+@router.get("/my-votes", response_model=StandardResponse[dict])
+async def get_my_votes(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    🆕 Get all votes cast by the current user across all elections
+    
+    Returns complete details of all elections, positions, and candidates voted for
+    """
+    try:
+        # Get all encrypted votes for this user by checking anonymous voter IDs
+        # We need to reconstruct the anonymous IDs for all possible combinations
         
+        # Get all elections
+        elections = db.query(Election).all()
+        
+        my_votes = []
+        
+        for election in elections:
+            # Get all positions in this election
+            positions = db.query(Position).filter(
+                Position.election_id == election.id
+            ).all()
+            
+            for position in positions:
+                # Generate anonymous voter ID for this user, election, and position
+                anonymous_voter_id = SecureVotingService._generate_anonymous_id(
+                    current_user.id,
+                    election.id,
+                    position.id
+                )
+                
+                # Check if there's a vote with this anonymous ID
+                encrypted_vote = db.query(EncryptedVote).filter(
+                    EncryptedVote.anonymous_voter_id == anonymous_voter_id,
+                    EncryptedVote.election_id == election.id,
+                    EncryptedVote.position_id == position.id
+                ).first()
+                
+                if encrypted_vote:
+                    # Get candidate details
+                    candidate = db.query(Candidate).options(
+                        joinedload(Candidate.user),
+                        joinedload(Candidate.party)
+                    ).filter(
+                        Candidate.id == encrypted_vote.candidate_id
+                    ).first()
+                    
+                    vote_info = {
+                        "vote_id": encrypted_vote.id,
+                        "vote_receipt": encrypted_vote.vote_receipt,
+                        "election": {
+                            "id": election.id,
+                            "title": election.title,
+                            "description": election.description,
+                            "election_type": election.election_type.value if election.election_type else None,
+                            "state": election.state.value if election.state else None,
+                            "start_date": election.start_date.isoformat() if election.start_date else None,
+                            "end_date": election.end_date.isoformat() if election.end_date else None,
+                            "is_active": election.is_active
+                        },
+                        "position": {
+                            "id": position.id,
+                            "title": position.title,
+                            "description": position.description
+                        },
+                        "candidate": {
+                            "id": candidate.id,
+                            "name": candidate.user.full_name if candidate.user else "Unknown",
+                            "bio": candidate.bio,
+                            "manifestos": candidate.manifestos,
+                            "party": {
+                                "id": candidate.party.id,
+                                "name": candidate.party.name,
+                                "acronym": candidate.party.acronym,
+                                "logo_url": candidate.party.logo_url
+                            } if candidate.party else None
+                        } if candidate else None,
+                        "cast_at": encrypted_vote.cast_at.isoformat() if encrypted_vote.cast_at else None,
+                        "verified": encrypted_vote.verified,
+                        "tallied": encrypted_vote.tallied,
+                        "status": "Verified and Counted" if encrypted_vote.tallied else "Pending Verification"
+                    }
+                    
+                    my_votes.append(vote_info)
+        
+        # Group votes by election
+        votes_by_election = {}
+        for vote in my_votes:
+            election_id = vote["election"]["id"]
+            if election_id not in votes_by_election:
+                votes_by_election[election_id] = {
+                    "election": vote["election"],
+                    "votes": []
+                }
+            votes_by_election[election_id]["votes"].append({
+                "vote_receipt": vote["vote_receipt"],
+                "position": vote["position"],
+                "candidate": vote["candidate"],
+                "cast_at": vote["cast_at"],
+                "verified": vote["verified"],
+                "status": vote["status"]
+            })
+        
+        result = {
+            "total_votes": len(my_votes),
+            "total_elections_participated": len(votes_by_election),
+            "votes_by_election": list(votes_by_election.values()),
+            "all_votes": my_votes  # Also include flat list for easier access
+        }
+
         return StandardResponse[dict](
             status=True,
             data=result,
             error=None,
-            message=result["message"]
+            message=f"Retrieved {len(my_votes)} votes across {len(votes_by_election)} elections"
         )
-    
-    except HTTPException as e:
-        return StandardResponse[dict](
-            status=False,
-            data=None,
-            error=e.detail.get("error") if isinstance(e.detail, dict) else str(e.detail),
-            message="Verification failed"
-        )
+
     except Exception as e:
+        print(f"❌ Error retrieving user votes: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return StandardResponse[dict](
             status=False,
             data=None,
             error=str(e),
-            message="Failed to verify receipt"
+            message="Failed to retrieve your votes"
         )
 
+# Other existing secure voting endpoints...
 
 @router.post("/elections/{election_id}/tally-secure", response_model=StandardResponse[dict])
-async def tally_secure_votes(election_id: int, current_user: User = Depends(get_current_super_admin), db: Session = Depends(get_db)):
+async def tally_secure_votes(
+    election_id: int, 
+    current_user: User = Depends(get_current_super_admin), 
+    db: Session = Depends(get_db)
+):
     result = SecureVotingService.tally_election_votes(db, current_user, election_id)
     return StandardResponse(status=True, data=result, error=None, message=result["message"])
 
@@ -713,10 +649,7 @@ async def get_my_voting_status(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """
-    Get current user's voting status for all positions in an election
-    Shows which positions they've voted for and their receipts
-    """
+    """Get current user's voting status for all positions in an election"""
     try:
         result = SecureVotingService.get_user_voting_status(
             db=db,
@@ -739,7 +672,6 @@ async def get_my_voting_status(
             message="Failed to get voting status"
         )
 
-
 @router.get("/elections/{election_id}/positions/{position_id}/has-voted", 
             response_model=StandardResponse[dict])
 async def check_position_voted(
@@ -748,9 +680,7 @@ async def check_position_voted(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """
-    Check if current user has already voted for a specific position
-    """
+    """Check if current user has already voted for a specific position"""
     try:
         has_voted = SecureVotingService.check_user_voted_for_position(
             db=db,
@@ -778,17 +708,12 @@ async def check_position_voted(
             message="Failed to check vote status"
         )
 
-
 @router.get("/audit/verify", response_model=StandardResponse[dict])
 async def verify_audit_trail(
     current_user: User = Depends(get_current_super_admin),
     db: Session = Depends(get_db)
 ):
-    """
-    Verify entire audit trail integrity (Super Admin only)
-    
-    Checks blockchain-style hash chain for tampering
-    """
+    """Verify entire audit trail integrity (Super Admin only)"""
     try:
         result = SecureVotingService.verify_audit_trail(db=db)
         
@@ -807,17 +732,13 @@ async def verify_audit_trail(
             message="Failed to verify audit trail"
         )
 
-
 @router.get("/elections/{election_id}/secure-statistics", response_model=StandardResponse[dict])
 async def get_secure_election_statistics(
     election_id: int,
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """
-    Get secure election statistics (Admin only)
-    Uses EncryptedVote
-    """
+    """Get secure election statistics (Admin only)"""
     try:
         election = db.query(Election).filter(Election.id == election_id).first()
         if not election:
@@ -857,7 +778,6 @@ async def get_secure_election_statistics(
 
             total_secure_votes += total_votes
 
-        # Verification attempts
         receipts = db.query(EncryptedVote.vote_receipt).filter(
             EncryptedVote.election_id == election_id
         ).all()
@@ -868,7 +788,6 @@ async def get_secure_election_statistics(
             VoteVerification.vote_receipt.in_(receipt_list)
         ).count() if receipt_list else 0
 
-        # ✅ timezone-aware comparison
         now_utc = datetime.now(timezone.utc)
 
         election_status = (
@@ -899,45 +818,30 @@ async def get_secure_election_statistics(
             message="Failed to get statistics"
         )
 
-# ================================
-# GET UPCOMING ELECTIONS
-# ================================
 @router.get("/upcoming", response_model=StandardResponse)
 def get_upcoming_elections(db: Session = Depends(get_db)):
-
     now = datetime.now(timezone.utc)
-
     elections = (
         db.query(Election)
         .filter(Election.start_date > now)
         .order_by(Election.start_date.asc())
         .all()
     )
-
     return StandardResponse(
         status=True,
         message="Upcoming elections retrieved successfully",
         data=elections
     )
 
-
-# ================================
-# GET PAST ELECTIONS
-# ================================
-@router.get(
-    "/past",
-    response_model=StandardResponse[list[ElectionResponse]]
-)
+@router.get("/past", response_model=StandardResponse[list[ElectionResponse]])
 def get_past_elections(db: Session = Depends(get_db)):
     now = datetime.now(timezone.utc)
-
     elections = (
         db.query(Election)
         .filter(Election.end_date < now)
         .order_by(Election.end_date.desc())
         .all()
     )
-
     return StandardResponse(
         status=True,
         message="Past elections retrieved successfully",
