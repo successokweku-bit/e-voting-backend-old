@@ -2,9 +2,10 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from sqlalchemy import func
 
 from app.models.database import get_db
-from app.models.models import User, UserRole, PoliticalParty, Candidate, Election, Position, ElectionType, State
+from app.models.models import User, UserRole, PoliticalParty, Candidate, Election, Position, ElectionType, State, EncryptedVote, VoteVerification
 from app.schemas.schemas import UserResponse, StandardResponse, PoliticalPartyCreate, PoliticalPartyResponse,ElectionInfo, CandidateCreate, CandidateResponse, StandardResponse
 from app.core.roles import get_current_admin, get_current_super_admin
 from app.core.security import get_password_hash
@@ -622,114 +623,6 @@ async def delete_political_party(
         )
 
 # === CANDIDATE MANAGEMENT ===
-# @router.post("/candidates", response_model=StandardResponse[CandidateResponse])
-# async def create_candidate(
-#     candidate_data: CandidateCreate,
-#     db: Session = Depends(get_db),
-#     current_user: User = Depends(get_current_user)
-# ):
-#     """Create a new candidate"""
-#     try:
-#         # Check user existence
-#         user = db.query(User).filter(User.id == candidate_data.user_id).first()
-#         if not user:
-#             return StandardResponse[CandidateResponse](
-#                 status=False,
-#                 data=None,
-#                 error=f"User with id {candidate_data.user_id} does not exist",
-#                 message="Validation error"
-#             )
-
-#         # Check position
-#         position = db.query(Position).filter(Position.id == candidate_data.position_id).first()
-#         if not position:
-#             return StandardResponse[CandidateResponse](
-#                 status=False,
-#                 data=None,
-#                 error=f"Position with id {candidate_data.position_id} does not exist",
-#                 message="Validation error"
-#             )
-
-#         # Check election
-#         election = db.query(Election).filter(Election.id == candidate_data.election_id).first()
-#         if not election:
-#             return StandardResponse[CandidateResponse](
-#                 status=False,
-#                 data=None,
-#                 error=f"Election with id {candidate_data.election_id} does not exist",
-#                 message="Validation error"
-#             )
-
-#         # CHECK IF CANDIDATE ALREADY EXISTS
-#         existing_candidate = db.query(Candidate).filter(
-#             Candidate.user_id == candidate_data.user_id,
-#             Candidate.position_id == candidate_data.position_id,
-#             Candidate.election_id == candidate_data.election_id
-#         ).first()
-        
-#         if existing_candidate:
-#             return StandardResponse[CandidateResponse](
-#                 status=False,
-#                 data=None,
-#                 error=f"User {user.full_name} is already a candidate for this position in this election",
-#                 message="Duplicate candidate"
-#             )
-
-#         # Optional: check party
-#         party = None
-#         if candidate_data.party_id:
-#             party = db.query(PoliticalParty).filter(PoliticalParty.id == candidate_data.party_id).first()
-#             if not party:
-#                 return StandardResponse[CandidateResponse](
-#                     status=False,
-#                     data=None,
-#                     error=f"Party with id {candidate_data.party_id} does not exist",
-#                     message="Validation error"
-#                 )
-
-#         # Create candidate
-#         candidate = Candidate(
-#             user_id=candidate_data.user_id,
-#             position_id=candidate_data.position_id,
-#             election_id=candidate_data.election_id,
-#             party_id=candidate_data.party_id,
-#             bio=candidate_data.bio,
-#             manifestos=[m.dict() for m in candidate_data.manifestos] if candidate_data.manifestos else []
-#         )
-
-#         db.add(candidate)
-#         db.commit()
-#         db.refresh(candidate)
-
-#         # Prepare response
-#         candidate_response = CandidateResponse(
-#             id=candidate.id,
-#             user_id=user.id,
-#             name=user.full_name,
-#             position_id=candidate.position_id,
-#             party_id=candidate.party_id,
-#             bio=candidate.bio,
-#             manifestos=candidate.manifestos,
-#             election=ElectionInfo.from_orm(election)
-#         )
-
-#         return StandardResponse[CandidateResponse](
-#             status=True,
-#             data=candidate_response,
-#             error=None,
-#             message="Candidate created successfully"
-#         )
-
-#     except Exception as e:
-#         db.rollback()
-#         return StandardResponse[CandidateResponse](
-#             status=False,
-#             data=None,
-#             error=str(e),
-#             message="Internal server error"
-#         )
-
-
 @router.post("/candidates", response_model=StandardResponse[CandidateResponse], summary="Create Candidate")
 async def create_candidate(
     user_id: int = Form(...),
@@ -1617,6 +1510,120 @@ async def delete_election(
             message="Error deleting election"
         )
 
+@router.get(
+    "/elections/{election_id}/tracking",
+    response_model=StandardResponse[dict],
+    summary="Track Individual Election (Encrypted Votes)"
+)
+async def track_individual_election(
+    election_id: int,
+    current_user = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    try:
+        election = db.query(Election).filter(Election.id == election_id).first()
+
+        if not election:
+            return StandardResponse(
+                status=False,
+                message="Election not found",
+                data=None,
+                error="No election exists with the provided ID"
+            )
+
+        # ---- SAFE COUNTS ----
+        total_votes = db.query(EncryptedVote).filter(
+            EncryptedVote.election_id == election_id
+        ).count()
+
+        verified_votes = db.query(EncryptedVote).filter(
+            EncryptedVote.election_id == election_id,
+            EncryptedVote.verified.is_(True)
+        ).count()
+
+        tallied_votes = db.query(EncryptedVote).filter(
+            EncryptedVote.election_id == election_id,
+            EncryptedVote.tallied.is_(True)
+        ).count()
+
+        receipt_verifications = db.query(VoteVerification).join(
+            EncryptedVote,
+            VoteVerification.vote_receipt == EncryptedVote.vote_receipt
+        ).filter(
+            EncryptedVote.election_id == election_id
+        ).count()
+
+        # ---- POSITIONS AND CANDIDATES ----
+        positions_data = []
+        for position in election.positions:
+            candidates_data = []
+
+            for candidate in position.candidates:
+                vote_count = db.query(EncryptedVote).filter(
+                    EncryptedVote.election_id == election_id,
+                    EncryptedVote.position_id == position.id,
+                    EncryptedVote.candidate_id == candidate.id
+                ).count()
+
+                candidates_data.append({
+                    "candidate_id": candidate.id,
+                    "candidate_name": candidate.user.full_name if candidate.user else "Unknown",
+                    "vote_count": vote_count
+                })
+
+            positions_data.append({
+                "position_id": position.id,
+                "title": position.title,
+                "total_votes": sum(c["vote_count"] for c in candidates_data),
+                "candidates": candidates_data
+            })
+
+        # ---- TIMELINE DATA ----
+        timeline = db.query(
+            func.date_trunc("hour", EncryptedVote.cast_at).label("hour"),
+            func.count().label("votes")
+        ).filter(
+            EncryptedVote.election_id == election_id
+        ).group_by("hour").order_by("hour").all()
+
+        timeline_data = [
+            {"hour": row.hour.isoformat(), "votes": row.votes}
+            for row in timeline
+        ]
+
+        return StandardResponse(
+            status=True,
+            message="Election tracking data retrieved successfully",
+            data={
+                "election": {
+                    "id": election.id,
+                    "title": election.title,
+                    "status": election.status if election.status else None,
+                    "is_active": election.is_active,
+                    "start_date": election.start_date.isoformat() if election.start_date else None,
+                    "end_date": election.end_date.isoformat() if election.end_date else None
+                },
+                "totals": {
+                    "votes_cast": total_votes,
+                    "verified_votes": verified_votes,
+                    "unverified_votes": total_votes - verified_votes,
+                    "tallied_votes": tallied_votes,
+                    "receipt_verifications": receipt_verifications
+                },
+                "positions": positions_data,
+                "timeline": timeline_data
+            },
+            error=None
+        )
+
+    except Exception as exc:
+        return StandardResponse(
+            status=False,
+            message="Failed to retrieve election tracking data",
+            data=None,
+            error=str(exc)
+        )
+    
 # === USER PROFILE IMAGE MANAGEMENT ===
 @router.put("/users/{user_id}/profile-image", response_model=StandardResponse[UserResponse])
 async def update_user_profile_image(
