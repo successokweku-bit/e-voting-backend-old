@@ -86,47 +86,6 @@ class PoliticalParty(Base):
     # Relationships
     candidates = relationship("Candidate", back_populates="party")
 
-
-# class User(Base):
-#     __tablename__ = "users"
-#     __table_args__ = {'extend_existing': True}
-
-#     id = Column(Integer, primary_key=True, index=True)
-#     nin = Column(String(20), unique=True, index=True, nullable=False)
-#     email = Column(String(255), unique=True, index=True, nullable=False)
-#     full_name = Column(String(255), nullable=False)
-#     state_of_residence = Column(
-#         Enum(
-#             State,
-#             values_callable=lambda obj: [e.value for e in obj],
-#             native_enum=False
-#         ),
-#         nullable=False
-#     )
-#     profile_image_url = Column(String(500), nullable=True)
-#     hashed_password = Column(String(255), nullable=False)
-#     role = Column(
-#         Enum(
-#             UserRole,
-#             values_callable=lambda obj: [e.value for e in obj],
-#             native_enum=False
-#         ),
-#         default=UserRole.USER.value,
-#         nullable=False
-#     )
-#     is_active = Column(Boolean, default=True)
-#     is_verified = Column(Boolean, default=False)
-#     date_of_birth = Column(DateTime(timezone=True), nullable=True)
-#     registration_date = Column(DateTime(timezone=True), server_default=func.now())
-#     created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-#     # Relationships
-#     votes = relationship("Vote", back_populates="user")
-#     candidates = relationship("Candidate", back_populates="user")
-#     audit_logs = relationship("AuditLog", back_populates="user")
-#     sessions = relationship("UserSession", back_populates="user")
-#     tallies = relationship("ElectionTally", back_populates="tally_admin")
-
 class User(Base):
     __tablename__ = "users"
     __table_args__ = {"extend_existing": True}
