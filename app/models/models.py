@@ -4,7 +4,7 @@ from sqlalchemy import (
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime,timezone
 import enum
 
 Base = declarative_base()
@@ -61,6 +61,11 @@ class ElectionType(enum.Enum):
     FEDERAL = "federal"
     STATE = "state"
     LOCAL = "local"
+
+class ElectionStatus(str, Enum):
+    UPCOMING = "upcoming"
+    ONGOING = "ongoing"
+    PAST = "past"
 
 # -------------------------
 # MODELS
@@ -170,6 +175,17 @@ class Election(Base):
     candidates = relationship("Candidate", back_populates="election")
     tallies = relationship("ElectionTally", back_populates="election")
 
+    @property
+    def status(self) -> ElectionStatus:
+        now = datetime.now(timezone.utc)
+
+        if self.start_date and now < self.start_date:
+            return ElectionStatus.UPCOMING
+
+        if self.end_date and self.start_date <= now <= self.end_date:
+            return ElectionStatus.ONGOING
+
+        return ElectionStatus.PAST
 
 class Position(Base):
     __tablename__ = "positions"

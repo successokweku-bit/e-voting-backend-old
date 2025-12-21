@@ -174,7 +174,8 @@ class ElectionCreate(ElectionBase):
 class ElectionResponse(ElectionBase):
     id: int
     created_at: datetime
-
+    status: ElectionStatus
+    
     model_config = ConfigDict(from_attributes=True)
 
 
