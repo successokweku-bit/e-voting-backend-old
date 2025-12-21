@@ -622,51 +622,164 @@ async def delete_political_party(
         )
 
 # === CANDIDATE MANAGEMENT ===
-@router.post("/candidates", response_model=StandardResponse[CandidateResponse])
+# @router.post("/candidates", response_model=StandardResponse[CandidateResponse])
+# async def create_candidate(
+#     candidate_data: CandidateCreate,
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+#     """Create a new candidate"""
+#     try:
+#         # Check user existence
+#         user = db.query(User).filter(User.id == candidate_data.user_id).first()
+#         if not user:
+#             return StandardResponse[CandidateResponse](
+#                 status=False,
+#                 data=None,
+#                 error=f"User with id {candidate_data.user_id} does not exist",
+#                 message="Validation error"
+#             )
+
+#         # Check position
+#         position = db.query(Position).filter(Position.id == candidate_data.position_id).first()
+#         if not position:
+#             return StandardResponse[CandidateResponse](
+#                 status=False,
+#                 data=None,
+#                 error=f"Position with id {candidate_data.position_id} does not exist",
+#                 message="Validation error"
+#             )
+
+#         # Check election
+#         election = db.query(Election).filter(Election.id == candidate_data.election_id).first()
+#         if not election:
+#             return StandardResponse[CandidateResponse](
+#                 status=False,
+#                 data=None,
+#                 error=f"Election with id {candidate_data.election_id} does not exist",
+#                 message="Validation error"
+#             )
+
+#         # CHECK IF CANDIDATE ALREADY EXISTS
+#         existing_candidate = db.query(Candidate).filter(
+#             Candidate.user_id == candidate_data.user_id,
+#             Candidate.position_id == candidate_data.position_id,
+#             Candidate.election_id == candidate_data.election_id
+#         ).first()
+        
+#         if existing_candidate:
+#             return StandardResponse[CandidateResponse](
+#                 status=False,
+#                 data=None,
+#                 error=f"User {user.full_name} is already a candidate for this position in this election",
+#                 message="Duplicate candidate"
+#             )
+
+#         # Optional: check party
+#         party = None
+#         if candidate_data.party_id:
+#             party = db.query(PoliticalParty).filter(PoliticalParty.id == candidate_data.party_id).first()
+#             if not party:
+#                 return StandardResponse[CandidateResponse](
+#                     status=False,
+#                     data=None,
+#                     error=f"Party with id {candidate_data.party_id} does not exist",
+#                     message="Validation error"
+#                 )
+
+#         # Create candidate
+#         candidate = Candidate(
+#             user_id=candidate_data.user_id,
+#             position_id=candidate_data.position_id,
+#             election_id=candidate_data.election_id,
+#             party_id=candidate_data.party_id,
+#             bio=candidate_data.bio,
+#             manifestos=[m.dict() for m in candidate_data.manifestos] if candidate_data.manifestos else []
+#         )
+
+#         db.add(candidate)
+#         db.commit()
+#         db.refresh(candidate)
+
+#         # Prepare response
+#         candidate_response = CandidateResponse(
+#             id=candidate.id,
+#             user_id=user.id,
+#             name=user.full_name,
+#             position_id=candidate.position_id,
+#             party_id=candidate.party_id,
+#             bio=candidate.bio,
+#             manifestos=candidate.manifestos,
+#             election=ElectionInfo.from_orm(election)
+#         )
+
+#         return StandardResponse[CandidateResponse](
+#             status=True,
+#             data=candidate_response,
+#             error=None,
+#             message="Candidate created successfully"
+#         )
+
+#     except Exception as e:
+#         db.rollback()
+#         return StandardResponse[CandidateResponse](
+#             status=False,
+#             data=None,
+#             error=str(e),
+#             message="Internal server error"
+#         )
+
+
+@router.post("/candidates", response_model=StandardResponse[CandidateResponse], summary="Create Candidate")
 async def create_candidate(
-    candidate_data: CandidateCreate,
+    user_id: int = Form(...),
+    position_id: int = Form(...),
+    election_id: int = Form(...),
+    party_id: int | None = Form(None),
+    bio: str | None = Form(None),
+    manifestos: str | None = Form(None),  # JSON string
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Create a new candidate"""
+    """Create a new candidate using FormData"""
     try:
         # Check user existence
-        user = db.query(User).filter(User.id == candidate_data.user_id).first()
+        user = db.query(User).filter(User.id == user_id).first()
         if not user:
             return StandardResponse[CandidateResponse](
                 status=False,
                 data=None,
-                error=f"User with id {candidate_data.user_id} does not exist",
+                error=f"User with id {user_id} does not exist",
                 message="Validation error"
             )
 
         # Check position
-        position = db.query(Position).filter(Position.id == candidate_data.position_id).first()
+        position = db.query(Position).filter(Position.id == position_id).first()
         if not position:
             return StandardResponse[CandidateResponse](
                 status=False,
                 data=None,
-                error=f"Position with id {candidate_data.position_id} does not exist",
+                error=f"Position with id {position_id} does not exist",
                 message="Validation error"
             )
 
         # Check election
-        election = db.query(Election).filter(Election.id == candidate_data.election_id).first()
+        election = db.query(Election).filter(Election.id == election_id).first()
         if not election:
             return StandardResponse[CandidateResponse](
                 status=False,
                 data=None,
-                error=f"Election with id {candidate_data.election_id} does not exist",
+                error=f"Election with id {election_id} does not exist",
                 message="Validation error"
             )
 
-        # CHECK IF CANDIDATE ALREADY EXISTS
+        # Check duplicate candidate
         existing_candidate = db.query(Candidate).filter(
-            Candidate.user_id == candidate_data.user_id,
-            Candidate.position_id == candidate_data.position_id,
-            Candidate.election_id == candidate_data.election_id
+            Candidate.user_id == user_id,
+            Candidate.position_id == position_id,
+            Candidate.election_id == election_id
         ).first()
-        
+
         if existing_candidate:
             return StandardResponse[CandidateResponse](
                 status=False,
@@ -676,32 +789,44 @@ async def create_candidate(
             )
 
         # Optional: check party
-        party = None
-        if candidate_data.party_id:
-            party = db.query(PoliticalParty).filter(PoliticalParty.id == candidate_data.party_id).first()
+        if party_id:
+            party = db.query(PoliticalParty).filter(PoliticalParty.id == party_id).first()
             if not party:
                 return StandardResponse[CandidateResponse](
                     status=False,
                     data=None,
-                    error=f"Party with id {candidate_data.party_id} does not exist",
+                    error=f"Party with id {party_id} does not exist",
+                    message="Validation error"
+                )
+
+        # Parse manifestos JSON
+        parsed_manifestos = []
+        if manifestos:
+            try:
+                parsed_manifestos = json.loads(manifestos)
+            except json.JSONDecodeError:
+                return StandardResponse[CandidateResponse](
+                    status=False,
+                    data=None,
+                    error="Invalid manifestos JSON format",
                     message="Validation error"
                 )
 
         # Create candidate
         candidate = Candidate(
-            user_id=candidate_data.user_id,
-            position_id=candidate_data.position_id,
-            election_id=candidate_data.election_id,
-            party_id=candidate_data.party_id,
-            bio=candidate_data.bio,
-            manifestos=[m.dict() for m in candidate_data.manifestos] if candidate_data.manifestos else []
+            user_id=user_id,
+            position_id=position_id,
+            election_id=election_id,
+            party_id=party_id,
+            bio=bio,
+            manifestos=parsed_manifestos
         )
 
         db.add(candidate)
         db.commit()
         db.refresh(candidate)
 
-        # Prepare response
+        # Response
         candidate_response = CandidateResponse(
             id=candidate.id,
             user_id=user.id,
@@ -728,7 +853,7 @@ async def create_candidate(
             error=str(e),
             message="Internal server error"
         )
-    
+   
 @router.get("/candidates", response_model=StandardResponse[List[dict]], summary="Get All Candidates")
 async def get_all_candidates(
     position_id: Optional[int] = Query(None, description="Filter by position ID"),
