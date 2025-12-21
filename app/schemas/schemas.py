@@ -171,6 +171,11 @@ class ElectionBase(BaseModel):
 class ElectionCreate(ElectionBase):
     pass
 
+class ElectionStatus(str, Enum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    COMPLETED = "completed"
+
 class ElectionResponse(ElectionBase):
     id: int
     created_at: datetime
