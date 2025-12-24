@@ -404,7 +404,7 @@ async def get_my_voter_profile(
         )
 
 
-@router.post("/auth/change-password", response_model=StandardResponse[dict])
+@router.post("/change-password", response_model=StandardResponse[dict])
 async def change_password(
     data: ChangePasswordRequest,
     current_user: User = Depends(get_current_active_user),
