@@ -1134,20 +1134,400 @@ async def delete_candidate(
         )
 
 # === ELECTION MANAGEMENT ===
+# @router.get("/elections", response_model=StandardResponse[List[dict]], summary="Get All Elections")
+# async def get_all_elections(
+#     is_active: Optional[bool] = Query(None, description="Filter by active status"),
+#     current_user: User = Depends(get_current_admin),
+#     db: Session = Depends(get_db)
+# ):
+#     """
+#     Get all elections with optional filtering.
+    
+#     **Admin only** - Requires admin authentication.
+#     """
+#     try:
+#         query = db.query(Election)
+        
+#         if is_active is not None:
+#             query = query.filter(Election.is_active == is_active)
+        
+#         elections = query.order_by(Election.created_at.desc()).all()
+        
+#         elections_data = []
+#         for election in elections:
+#             elections_data.append({
+#                 "election_id": election.id,
+#                 "title": election.title,
+#                 "description": election.description,
+#                 "election_type": election.election_type,
+#                 "state": election.state,
+#                 "is_active": election.is_active,
+#                 "start_date": election.start_date.isoformat() if election.start_date else None,
+#                 "end_date": election.end_date.isoformat() if election.end_date else None,
+#                 "created_at": election.created_at.isoformat() if election.created_at else None,
+#                 "position_count": len(election.positions) if hasattr(election, 'positions') else 0
+#             })
+        
+#         return StandardResponse[List[dict]](
+#             status=True,
+#             data=elections_data,
+#             error=None,
+#             message=f"Retrieved {len(elections_data)} elections"
+#         )
+        
+#     except Exception as e:
+#         return StandardResponse[List[dict]](
+#             status=False,
+#             data=None,
+#             error=str(e),
+#             message="Error retrieving elections"
+#         )
+
+# @router.get("/elections/{election_id}", response_model=StandardResponse[dict], summary="Get Election by ID")
+# async def get_election_by_id(
+#     election_id: int,
+#     current_user: User = Depends(get_current_admin),
+#     db: Session = Depends(get_db)
+# ):
+#     """
+#     Get specific election by ID with detailed information.
+    
+#     **Admin only** - Requires admin authentication.
+#     """
+#     try:
+#         election = db.query(Election).filter(Election.id == election_id).first()
+        
+#         if not election:
+#             return StandardResponse[dict](
+#                 status=False,
+#                 data=None,
+#                 error="Election not found",
+#                 message="Election retrieval failed"
+#             )
+        
+#         election_data = {
+#             "election_id": election.id,
+#             "title": election.title,
+#             "description": election.description,
+#             "election_type": election.election_type,
+#             "state": election.state,
+#             "is_active": election.is_active,
+#             "start_date": election.start_date.isoformat() if election.start_date else None,
+#             "end_date": election.end_date.isoformat() if election.end_date else None,
+#             "created_at": election.created_at.isoformat() if election.created_at else None,
+#             "position_count": len(election.positions) if hasattr(election, 'positions') else 0,
+#             "positions": [
+#                 {
+#                     "position_id": pos.id,
+#                     "title": pos.title,
+#                     "description": pos.description,
+#                     "candidate_count": len(pos.candidates) if hasattr(pos, 'candidates') else 0
+#                 } for pos in election.positions
+#             ] if hasattr(election, 'positions') else []
+#         }
+        
+#         return StandardResponse[dict](
+#             status=True,
+#             data=election_data,
+#             error=None,
+#             message="Election retrieved successfully"
+#         )
+        
+#     except Exception as e:
+#         return StandardResponse[dict](
+#             status=False,
+#             data=None,
+#             error=str(e),
+#             message="Error retrieving election"
+#         )
+
+# @router.post("/elections", response_model=StandardResponse[dict], summary="Create Election")
+# async def create_election(
+#     title: str = Form(..., description="Election title"),
+#     description: Optional[str] = Form(None, description="Election description"),
+#     election_type: str = Form(..., description="Type of election: federal, state, or local"),
+#     state: Optional[str] = Form(None, description="State name (for state/local elections)"),
+#     is_active: str = Form("false", description="Active status (true/false)"),
+#     start_date: Optional[str] = Form(None, description="Start date (YYYY-MM-DD)"),
+#     end_date: Optional[str] = Form(None, description="End date (YYYY-MM-DD)"),
+#     current_user = Depends(get_current_admin),
+#     db: Session = Depends(get_db)
+# ):
+#     """
+#     Create a new election.
+#     Admin only.
+#     """
+#     try:
+#         # Debug logging (remove or lower severity in production)
+#         print("🔍 create_election request:", {
+#             "title": title, "description": description, "election_type": election_type,
+#             "state": state, "is_active": is_active, "start_date": start_date, "end_date": end_date
+#         })
+
+#         # normalize boolean
+#         is_active_bool = str(is_active).strip().lower() == "true"
+
+#         # validate election_type -> convert to Enum
+#         et_lower = election_type.strip().lower()
+#         valid_types = [t.value for t in ElectionType]
+#         if et_lower not in valid_types:
+#             return StandardResponse(
+#                 status=False,
+#                 data=None,
+#                 error=f"Invalid election_type. Allowed: {', '.join(valid_types)}",
+#                 message="Election creation failed"
+#             )
+#         et_enum = ElectionType(et_lower)
+
+#         # validate state if present -> convert to Enum
+#         validated_state = None
+#         if state and state.strip() != "":
+#             # Accept exact values (case sensitive because Enum values are capitalized in your model).
+#             # Allow user to send lowercase by comparing lowercased values.
+#             states_map = {s.value.lower(): s for s in State}
+#             state_key = state.strip().lower()
+#             if state_key not in states_map:
+#                 return StandardResponse(
+#                     status=False,
+#                     data=None,
+#                     error=f"Invalid state. Must be one of: {', '.join([s.value for s in State])}",
+#                     message="Election creation failed"
+#                 )
+#             validated_state = states_map[state_key]  # enum member
+
+#         # safe date parsing helper: accepts YYYY-MM-DD only
+#         def parse_date(sd: Optional[str]):
+#             if not sd or str(sd).strip() == "":
+#                 return None
+#             s = sd.strip()
+#             # Accept just date part if full ISO provided
+#             if "T" in s:
+#                 s = s.split("T")[0]
+#             try:
+#                 return datetime.strptime(s, "%Y-%m-%d")
+#             except ValueError:
+#                 return None
+
+#         parsed_start = parse_date(start_date)
+#         parsed_end = parse_date(end_date)
+
+#         if parsed_start and parsed_end and parsed_start >= parsed_end:
+#             return StandardResponse(
+#                 status=False,
+#                 data=None,
+#                 error="End date must be after start date",
+#                 message="Election creation failed"
+#             )
+
+#         # title validation
+#         if not title or not title.strip():
+#             return StandardResponse(
+#                 status=False,
+#                 data=None,
+#                 error="Election title cannot be empty",
+#                 message="Election creation failed"
+#             )
+
+#         # Build SQLAlchemy Election object.
+#         # Assign enum members (SQLAlchemy Enum column will store their values)
+#         election = Election(
+#             title=title.strip(),
+#             description=(description.strip() if description and description.strip() else None),
+#             election_type=et_enum,               # Enum member
+#             state=(validated_state if validated_state is not None else None),
+#             is_active=is_active_bool,
+#             start_date=parsed_start,
+#             end_date=parsed_end
+#         )
+
+#         db.add(election)
+#         db.commit()
+#         db.refresh(election)
+
+#         # Return consistent StandardResponse dict
+#         return StandardResponse(
+#             status=True,
+#             data={
+#                 "election_id": election.id,
+#                 "title": election.title,
+#                 "description": election.description,
+#                 "election_type": election.election_type.value if isinstance(election.election_type, ElectionType) else str(election.election_type),
+#                 "state": election.state.value if election.state is not None else None,
+#                 "is_active": election.is_active,
+#                 "start_date": election.start_date.isoformat() if election.start_date else None,
+#                 "end_date": election.end_date.isoformat() if election.end_date else None,
+#             },
+#             error=None,
+#             message="Election created successfully"
+#         )
+
+#     except Exception as exc:
+#         db.rollback()
+#         print("❌ create_election error:", exc)
+#         import traceback
+#         traceback.print_exc()
+
+#         return StandardResponse(
+#             status=False,
+#             data=None,
+#             error=str(exc),
+#             message="Error creating election"
+#         )
+    
+# @router.put("/elections/{election_id}", response_model=StandardResponse[dict])
+# async def update_election(
+#     election_id: int,
+#     title: Optional[str] = Form(None),
+#     description: Optional[str] = Form(None),
+#     election_type: Optional[str] = Form(None),
+#     state: Optional[str] = Form(None),
+#     is_active: Optional[bool] = Form(None),
+#     start_date: Optional[datetime] = Form(None),
+#     end_date: Optional[datetime] = Form(None),
+#     current_user: User = Depends(get_current_admin),
+#     db: Session = Depends(get_db)
+# ):
+#     """Update election (Admin only)"""
+#     try:
+#         election = db.query(Election).filter(Election.id == election_id).first()
+#         if not election:
+#             return StandardResponse[dict](
+#                 status=False,
+#                 data=None,
+#                 error="Election not found",
+#                 message="Election update failed"
+#             )
+        
+#         # Update fields if provided
+#         if title:
+#             election.title = title
+#         if description is not None:
+#             election.description = description
+#         if election_type:
+#             election.election_type = election_type
+#         if state is not None:
+#             election.state = state
+#         if is_active is not None:
+#             election.is_active = is_active
+#         if start_date:
+#             election.start_date = start_date
+#         if end_date:
+#             election.end_date = end_date
+        
+#         # Validate dates
+#         if election.start_date and election.end_date and election.start_date >= election.end_date:
+#             return StandardResponse[dict](
+#                 status=False,
+#                 data=None,
+#                 error="End date must be after start date",
+#                 message="Election update failed"
+#             )
+        
+#         db.commit()
+#         db.refresh(election)
+        
+#         return StandardResponse[dict](
+#             status=True,
+#             data={
+#                 "election_id": election.id,
+#                 "title": election.title,
+#                 "description": election.description,
+#                 "election_type": election.election_type,
+#                 "state": election.state,
+#                 "is_active": election.is_active,
+#                 "start_date": str(election.start_date) if election.start_date else None,
+#                 "end_date": str(election.end_date) if election.end_date else None
+#             },
+#             error=None,
+#             message="Election updated successfully"
+#         )
+        
+#     except Exception as e:
+#         db.rollback()
+#         return StandardResponse[dict](
+#             status=False,
+#             data=None,
+#             error=str(e),
+#             message="Error updating election"
+#         )
+
+# @router.delete("/elections/{election_id}", response_model=StandardResponse[dict])
+# async def delete_election(
+#     election_id: int,
+#     current_user: User = Depends(get_current_admin),
+#     db: Session = Depends(get_db)
+# ):
+#     """Delete election (Admin only)"""
+#     try:
+#         election = db.query(Election).filter(Election.id == election_id).first()
+#         if not election:
+#             return StandardResponse[dict](
+#                 status=False,
+#                 data=None,
+#                 error="Election not found",
+#                 message="Election deletion failed"
+#             )
+        
+#         # Check if election has votes
+#         from app.models.models import Vote
+#         votes = db.query(Vote).filter(Vote.election_id == election_id).count()
+#         if votes > 0:
+#             return StandardResponse[dict](
+#                 status=False,
+#                 data=None,
+#                 error=f"Cannot delete election with {votes} votes",
+#                 message="Election deletion failed"
+#             )
+        
+#         # Delete associated positions and candidates
+#         from app.models.models import Position
+#         positions = db.query(Position).filter(Position.election_id == election_id).all()
+#         for position in positions:
+#             # Delete candidates for this position
+#             candidates = db.query(Candidate).filter(Candidate.position_id == position.id).all()
+#             for candidate in candidates:
+#                 if candidate.profile_image_url:
+#                     FileUploadService.delete_file(candidate.profile_image_url)
+#                 db.delete(candidate)
+#             db.delete(position)
+        
+#         db.delete(election)
+#         db.commit()
+        
+#         return StandardResponse[dict](
+#             status=True,
+#             data={"deleted_election_id": election_id},
+#             error=None,
+#             message="Election deleted successfully"
+#         )
+        
+#     except Exception as e:
+#         db.rollback()
+#         return StandardResponse[dict](
+#             status=False,
+#             data=None,
+#             error=str(e),
+#             message="Error deleting election"
+#         )
+
+# === ELECTION MANAGEMENT ===
+# === ELECTION MANAGEMENT ===
+
+def get_safe_value(attr):
+    """Helper to handle Enum vs String serialization safely"""
+    if attr is None:
+        return None
+    return attr.value if hasattr(attr, 'value') else attr
+
 @router.get("/elections", response_model=StandardResponse[List[dict]], summary="Get All Elections")
 async def get_all_elections(
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """
-    Get all elections with optional filtering.
-    
-    **Admin only** - Requires admin authentication.
-    """
+    """Get all elections with optional filtering (Admin only)"""
     try:
         query = db.query(Election)
-        
         if is_active is not None:
             query = query.filter(Election.is_active == is_active)
         
@@ -1159,29 +1539,23 @@ async def get_all_elections(
                 "election_id": election.id,
                 "title": election.title,
                 "description": election.description,
-                "election_type": election.election_type,
-                "state": election.state,
+                "election_type": get_safe_value(election.election_type),
+                "state": get_safe_value(election.state),
+                "status": get_safe_value(election.status),  # ✅ Uses @property logic
                 "is_active": election.is_active,
                 "start_date": election.start_date.isoformat() if election.start_date else None,
                 "end_date": election.end_date.isoformat() if election.end_date else None,
                 "created_at": election.created_at.isoformat() if election.created_at else None,
-                "position_count": len(election.positions) if hasattr(election, 'positions') else 0
+                "position_count": len(election.positions)
             })
         
-        return StandardResponse[List[dict]](
+        return StandardResponse(
             status=True,
             data=elections_data,
-            error=None,
             message=f"Retrieved {len(elections_data)} elections"
         )
-        
     except Exception as e:
-        return StandardResponse[List[dict]](
-            status=False,
-            data=None,
-            error=str(e),
-            message="Error retrieving elections"
-        )
+        return StandardResponse(status=False, error=str(e), message="Error retrieving elections")
 
 @router.get("/elections/{election_id}", response_model=StandardResponse[dict], summary="Get Election by ID")
 async def get_election_by_id(
@@ -1189,152 +1563,88 @@ async def get_election_by_id(
     current_user: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """
-    Get specific election by ID with detailed information.
-    
-    **Admin only** - Requires admin authentication.
-    """
+    """Get specific election by ID with detailed information (Admin only)"""
     try:
         election = db.query(Election).filter(Election.id == election_id).first()
-        
         if not election:
-            return StandardResponse[dict](
-                status=False,
-                data=None,
-                error="Election not found",
-                message="Election retrieval failed"
-            )
+            return StandardResponse(status=False, error="Election not found", message="Retrieval failed")
         
         election_data = {
             "election_id": election.id,
             "title": election.title,
             "description": election.description,
-            "election_type": election.election_type,
-            "state": election.state,
+            "election_type": get_safe_value(election.election_type),
+            "state": get_safe_value(election.state),
+            "status": get_safe_value(election.status),
             "is_active": election.is_active,
             "start_date": election.start_date.isoformat() if election.start_date else None,
             "end_date": election.end_date.isoformat() if election.end_date else None,
             "created_at": election.created_at.isoformat() if election.created_at else None,
-            "position_count": len(election.positions) if hasattr(election, 'positions') else 0,
+            "position_count": len(election.positions),
             "positions": [
                 {
                     "position_id": pos.id,
                     "title": pos.title,
                     "description": pos.description,
-                    "candidate_count": len(pos.candidates) if hasattr(pos, 'candidates') else 0
+                    "candidate_count": len(pos.candidates)
                 } for pos in election.positions
-            ] if hasattr(election, 'positions') else []
+            ]
         }
-        
-        return StandardResponse[dict](
-            status=True,
-            data=election_data,
-            error=None,
-            message="Election retrieved successfully"
-        )
-        
+        return StandardResponse(status=True, data=election_data, message="Election retrieved successfully")
     except Exception as e:
-        return StandardResponse[dict](
-            status=False,
-            data=None,
-            error=str(e),
-            message="Error retrieving election"
-        )
+        return StandardResponse(status=False, error=str(e), message="Error retrieving election")
 
 @router.post("/elections", response_model=StandardResponse[dict], summary="Create Election")
 async def create_election(
-    title: str = Form(..., description="Election title"),
-    description: Optional[str] = Form(None, description="Election description"),
-    election_type: str = Form(..., description="Type of election: federal, state, or local"),
-    state: Optional[str] = Form(None, description="State name (for state/local elections)"),
-    is_active: str = Form("false", description="Active status (true/false)"),
-    start_date: Optional[str] = Form(None, description="Start date (YYYY-MM-DD)"),
-    end_date: Optional[str] = Form(None, description="End date (YYYY-MM-DD)"),
+    title: str = Form(...),
+    description: Optional[str] = Form(None),
+    election_type: str = Form(...),
+    state: Optional[str] = Form(None),
+    is_active: str = Form("false"),
+    start_date: Optional[str] = Form(None),
+    end_date: Optional[str] = Form(None),
     current_user = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """
-    Create a new election.
-    Admin only.
-    """
+    """Create a new election (Admin only)"""
     try:
-        # Debug logging (remove or lower severity in production)
-        print("🔍 create_election request:", {
-            "title": title, "description": description, "election_type": election_type,
-            "state": state, "is_active": is_active, "start_date": start_date, "end_date": end_date
-        })
-
-        # normalize boolean
         is_active_bool = str(is_active).strip().lower() == "true"
 
-        # validate election_type -> convert to Enum
-        et_lower = election_type.strip().lower()
-        valid_types = [t.value for t in ElectionType]
-        if et_lower not in valid_types:
-            return StandardResponse(
-                status=False,
-                data=None,
-                error=f"Invalid election_type. Allowed: {', '.join(valid_types)}",
-                message="Election creation failed"
-            )
-        et_enum = ElectionType(et_lower)
+        # Enum Validation
+        try:
+            et_enum = ElectionType(election_type.strip().lower())
+        except ValueError:
+            return StandardResponse(status=False, error="Invalid election_type", message="Creation failed")
 
-        # validate state if present -> convert to Enum
         validated_state = None
-        if state and state.strip() != "":
-            # Accept exact values (case sensitive because Enum values are capitalized in your model).
-            # Allow user to send lowercase by comparing lowercased values.
+        if state and state.strip():
+            # Match state string to Enum (Handles "Abuja" vs "Federal Capital Territory")
             states_map = {s.value.lower(): s for s in State}
-            state_key = state.strip().lower()
-            if state_key not in states_map:
-                return StandardResponse(
-                    status=False,
-                    data=None,
-                    error=f"Invalid state. Must be one of: {', '.join([s.value for s in State])}",
-                    message="Election creation failed"
-                )
-            validated_state = states_map[state_key]  # enum member
+            # Special check for Abuja mapping to FCT
+            state_input = state.strip().lower()
+            if state_input == "abuja": state_input = "federal capital territory"
+            
+            if state_input not in states_map:
+                return StandardResponse(status=False, error="Invalid state name", message="Creation failed")
+            validated_state = states_map[state_input]
 
-        # safe date parsing helper: accepts YYYY-MM-DD only
-        def parse_date(sd: Optional[str]):
-            if not sd or str(sd).strip() == "":
-                return None
-            s = sd.strip()
-            # Accept just date part if full ISO provided
-            if "T" in s:
-                s = s.split("T")[0]
+        # Date Parsing
+        def parse_date(d_str):
+            if not d_str or not d_str.strip(): return None
             try:
-                return datetime.strptime(s, "%Y-%m-%d")
+                dt = datetime.fromisoformat(d_str.replace("Z", "+00:00"))
+                return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
             except ValueError:
-                return None
+                return datetime.strptime(d_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
 
         parsed_start = parse_date(start_date)
         parsed_end = parse_date(end_date)
 
-        if parsed_start and parsed_end and parsed_start >= parsed_end:
-            return StandardResponse(
-                status=False,
-                data=None,
-                error="End date must be after start date",
-                message="Election creation failed"
-            )
-
-        # title validation
-        if not title or not title.strip():
-            return StandardResponse(
-                status=False,
-                data=None,
-                error="Election title cannot be empty",
-                message="Election creation failed"
-            )
-
-        # Build SQLAlchemy Election object.
-        # Assign enum members (SQLAlchemy Enum column will store their values)
         election = Election(
             title=title.strip(),
-            description=(description.strip() if description and description.strip() else None),
-            election_type=et_enum,               # Enum member
-            state=(validated_state if validated_state is not None else None),
+            description=description,
+            election_type=et_enum,
+            state=validated_state,
             is_active=is_active_bool,
             start_date=parsed_start,
             end_date=parsed_end
@@ -1344,36 +1654,19 @@ async def create_election(
         db.commit()
         db.refresh(election)
 
-        # Return consistent StandardResponse dict
         return StandardResponse(
             status=True,
             data={
                 "election_id": election.id,
-                "title": election.title,
-                "description": election.description,
-                "election_type": election.election_type.value if isinstance(election.election_type, ElectionType) else str(election.election_type),
-                "state": election.state.value if election.state is not None else None,
-                "is_active": election.is_active,
-                "start_date": election.start_date.isoformat() if election.start_date else None,
-                "end_date": election.end_date.isoformat() if election.end_date else None,
+                "status": get_safe_value(election.status),
+                "is_active": election.is_active
             },
-            error=None,
             message="Election created successfully"
         )
-
     except Exception as exc:
         db.rollback()
-        print("❌ create_election error:", exc)
-        import traceback
-        traceback.print_exc()
+        return StandardResponse(status=False, error=str(exc), message="Error creating election")
 
-        return StandardResponse(
-            status=False,
-            data=None,
-            error=str(exc),
-            message="Error creating election"
-        )
-    
 @router.put("/elections/{election_id}", response_model=StandardResponse[dict])
 async def update_election(
     election_id: int,
@@ -1391,65 +1684,42 @@ async def update_election(
     try:
         election = db.query(Election).filter(Election.id == election_id).first()
         if not election:
-            return StandardResponse[dict](
-                status=False,
-                data=None,
-                error="Election not found",
-                message="Election update failed"
-            )
+            return StandardResponse(status=False, error="Election not found", message="Update failed")
         
-        # Update fields if provided
-        if title:
-            election.title = title
-        if description is not None:
-            election.description = description
+        if title: election.title = title
+        if description is not None: election.description = description
+        if is_active is not None: election.is_active = is_active
+        
         if election_type:
-            election.election_type = election_type
-        if state is not None:
-            election.state = state
-        if is_active is not None:
-            election.is_active = is_active
-        if start_date:
-            election.start_date = start_date
-        if end_date:
-            election.end_date = end_date
+            election.election_type = ElectionType(election_type.lower())
         
-        # Validate dates
-        if election.start_date and election.end_date and election.start_date >= election.end_date:
-            return StandardResponse[dict](
-                status=False,
-                data=None,
-                error="End date must be after start date",
-                message="Election update failed"
-            )
+        if state:
+            states_map = {s.value.lower(): s for s in State}
+            state_input = state.strip().lower()
+            if state_input == "abuja": state_input = "federal capital territory"
+            if state_input in states_map:
+                election.state = states_map[state_input]
+
+        if start_date:
+            election.start_date = start_date if start_date.tzinfo else start_date.replace(tzinfo=timezone.utc)
+        if end_date:
+            election.end_date = end_date if end_date.tzinfo else end_date.replace(tzinfo=timezone.utc)
         
         db.commit()
         db.refresh(election)
         
-        return StandardResponse[dict](
+        return StandardResponse(
             status=True,
             data={
                 "election_id": election.id,
-                "title": election.title,
-                "description": election.description,
-                "election_type": election.election_type,
-                "state": election.state,
-                "is_active": election.is_active,
-                "start_date": str(election.start_date) if election.start_date else None,
-                "end_date": str(election.end_date) if election.end_date else None
+                "status": get_safe_value(election.status),
+                "is_active": election.is_active
             },
-            error=None,
             message="Election updated successfully"
         )
-        
     except Exception as e:
         db.rollback()
-        return StandardResponse[dict](
-            status=False,
-            data=None,
-            error=str(e),
-            message="Error updating election"
-        )
+        return StandardResponse(status=False, error=str(e), message="Error updating election")
 
 @router.delete("/elections/{election_id}", response_model=StandardResponse[dict])
 async def delete_election(
@@ -1461,170 +1731,22 @@ async def delete_election(
     try:
         election = db.query(Election).filter(Election.id == election_id).first()
         if not election:
-            return StandardResponse[dict](
-                status=False,
-                data=None,
-                error="Election not found",
-                message="Election deletion failed"
-            )
+            return StandardResponse(status=False, error="Election not found", message="Deletion failed")
         
-        # Check if election has votes
-        from app.models.models import Vote
-        votes = db.query(Vote).filter(Vote.election_id == election_id).count()
-        if votes > 0:
-            return StandardResponse[dict](
-                status=False,
-                data=None,
-                error=f"Cannot delete election with {votes} votes",
-                message="Election deletion failed"
-            )
-        
-        # Delete associated positions and candidates
-        from app.models.models import Position
-        positions = db.query(Position).filter(Position.election_id == election_id).all()
-        for position in positions:
-            # Delete candidates for this position
-            candidates = db.query(Candidate).filter(Candidate.position_id == position.id).all()
-            for candidate in candidates:
-                if candidate.profile_image_url:
-                    FileUploadService.delete_file(candidate.profile_image_url)
-                db.delete(candidate)
-            db.delete(position)
+        # Check for votes in new secure table
+        v_count = db.query(EncryptedVote).filter(EncryptedVote.election_id == election_id).count()
+        if v_count > 0:
+            return StandardResponse(status=False, error=f"Election has {v_count} votes cast and cannot be deleted.", message="Deletion failed")
         
         db.delete(election)
         db.commit()
         
-        return StandardResponse[dict](
-            status=True,
-            data={"deleted_election_id": election_id},
-            error=None,
-            message="Election deleted successfully"
-        )
-        
+        return StandardResponse(status=True, data={"deleted_id": election_id}, message="Election deleted successfully")
     except Exception as e:
         db.rollback()
-        return StandardResponse[dict](
-            status=False,
-            data=None,
-            error=str(e),
-            message="Error deleting election"
-        )
-
-# @router.get(
-#     "/elections/{election_id}/tracking",
-#     response_model=StandardResponse[dict],
-#     summary="Track Individual Election (Encrypted Votes)"
-# )
-# async def track_individual_election(
-#     election_id: int,
-#     current_user = Depends(get_current_admin),
-#     db: Session = Depends(get_db)
-# ):
-#     try:
-#         election = db.query(Election).filter(Election.id == election_id).first()
-
-#         if not election:
-#             return StandardResponse(
-#                 status=False,
-#                 message="Election not found",
-#                 data=None,
-#                 error="No election exists with the provided ID"
-#             )
-
-#         # ---- SAFE COUNTS ----
-#         total_votes = db.query(EncryptedVote).filter(
-#             EncryptedVote.election_id == election_id
-#         ).count()
-
-#         verified_votes = db.query(EncryptedVote).filter(
-#             EncryptedVote.election_id == election_id,
-#             EncryptedVote.verified.is_(True)
-#         ).count()
-
-#         tallied_votes = db.query(EncryptedVote).filter(
-#             EncryptedVote.election_id == election_id,
-#             EncryptedVote.tallied.is_(True)
-#         ).count()
-
-#         receipt_verifications = db.query(VoteVerification).join(
-#             EncryptedVote,
-#             VoteVerification.vote_receipt == EncryptedVote.vote_receipt
-#         ).filter(
-#             EncryptedVote.election_id == election_id
-#         ).count()
-
-#         # ---- POSITIONS AND CANDIDATES ----
-#         positions_data = []
-#         for position in election.positions:
-#             candidates_data = []
-
-#             for candidate in position.candidates:
-#                 vote_count = db.query(EncryptedVote).filter(
-#                     EncryptedVote.election_id == election_id,
-#                     EncryptedVote.position_id == position.id,
-#                     EncryptedVote.candidate_id == candidate.id
-#                 ).count()
-
-#                 candidates_data.append({
-#                     "candidate_id": candidate.id,
-#                     "candidate_name": candidate.user.full_name if candidate.user else "Unknown",
-#                     "vote_count": vote_count
-#                 })
-
-#             positions_data.append({
-#                 "position_id": position.id,
-#                 "title": position.title,
-#                 "total_votes": sum(c["vote_count"] for c in candidates_data),
-#                 "candidates": candidates_data
-#             })
-
-#         # ---- TIMELINE DATA ----
-#         timeline = db.query(
-#             func.date_trunc("hour", EncryptedVote.cast_at).label("hour"),
-#             func.count().label("votes")
-#         ).filter(
-#             EncryptedVote.election_id == election_id
-#         ).group_by("hour").order_by("hour").all()
-
-#         timeline_data = [
-#             {"hour": row.hour.isoformat(), "votes": row.votes}
-#             for row in timeline
-#         ]
-
-#         return StandardResponse(
-#             status=True,
-#             message="Election tracking data retrieved successfully",
-#             data={
-#                 "election": {
-#                     "id": election.id,
-#                     "title": election.title,
-#                     "status": election.status if election.status else None,
-#                     "is_active": election.is_active,
-#                     "start_date": election.start_date.isoformat() if election.start_date else None,
-#                     "end_date": election.end_date.isoformat() if election.end_date else None
-#                 },
-#                 "totals": {
-#                     "votes_cast": total_votes,
-#                     "verified_votes": verified_votes,
-#                     "unverified_votes": total_votes - verified_votes,
-#                     "tallied_votes": tallied_votes,
-#                     "receipt_verifications": receipt_verifications
-#                 },
-#                 "positions": positions_data,
-#                 "timeline": timeline_data
-#             },
-#             error=None
-#         )
-
-#     except Exception as exc:
-#         return StandardResponse(
-#             status=False,
-#             message="Failed to retrieve election tracking data",
-#             data=None,
-#             error=str(exc)
-#         )
+        return StandardResponse(status=False, error=str(e), message="Error deleting election")
     
-
+    
 @router.get(
     "/elections/{election_id}/tracking",
     response_model=StandardResponse[dict],
@@ -1758,101 +1880,6 @@ async def track_individual_election(
             data=None,
             error=str(exc)
         )
-    
-# @router.get(
-#     "/elections/{election_id}/tracking",
-#     response_model=StandardResponse[dict],
-#     summary="Track Individual Election (Encrypted Votes)"
-# )
-# async def track_individual_election(
-#     election_id: int,
-#     current_user = Depends(get_current_admin),
-#     db: Session = Depends(get_db)
-# ):
-#     try:
-#         election = db.query(Election).filter(Election.id == election_id).first()
-
-#         if not election:
-#             return StandardResponse(
-#                 status=False,
-#                 message="Election not found",
-#                 data=None,
-#                 error="No election exists with the provided ID"
-#             )
-
-#         is_completed = election.status.value == "PAST"
-
-#         positions_data = []
-
-#         for position in election.positions:
-#             candidates_data = []
-#             total_position_votes = 0
-
-#             # ---- Count votes per candidate ----
-#             for candidate in position.candidates:
-#                 vote_count = db.query(EncryptedVote).filter(
-#                     EncryptedVote.election_id == election.id,
-#                     EncryptedVote.position_id == position.id,
-#                     EncryptedVote.candidate_id == candidate.id
-#                 ).count()
-
-#                 total_position_votes += vote_count
-
-#                 candidates_data.append({
-#                     "candidate_id": candidate.id,
-#                     "candidate_name": candidate.full_name,
-#                     "vote_count": vote_count  # percentage added later
-#                 })
-
-#             # ---- Add percentages ----
-#             for c in candidates_data:
-#                 c["percentage"] = (
-#                     round((c["vote_count"] / total_position_votes) * 100, 2)
-#                     if total_position_votes > 0 else 0.0
-#                 )
-
-#             # ---- Determine winner ONLY if election ended ---- 🔹
-#             winner_data = None
-#             if is_completed and total_position_votes > 0:
-#                 max_votes = max(c["vote_count"] for c in candidates_data)
-#                 winners = [c for c in candidates_data if c["vote_count"] == max_votes]
-
-#                 winner_data = {
-#                     "is_tie": len(winners) > 1,
-#                     "winners": winners
-#                 }
-
-#             positions_data.append({
-#                 "position_id": position.id,
-#                 "title": position.title,
-#                 "total_votes": total_position_votes,
-#                 "candidates": candidates_data,
-#                 "winner": winner_data if is_completed else None
-#             })
-
-#         return StandardResponse(
-#             status=True,
-#             message="Election tracking data retrieved successfully",
-#             data={
-#                 "election": {
-#                     "id": election.id,
-#                     "title": election.title,
-#                     "status": election.status.value,
-#                     "has_ended": is_completed
-#                 },
-#                 "positions": positions_data
-#             },
-#             error=None
-#         )
-
-#     except Exception as exc:
-#         return StandardResponse(
-#             status=False,
-#             message="Failed to retrieve election tracking data",
-#             data=None,
-#             error=str(exc)
-#         )
-
 
 # === USER PROFILE IMAGE MANAGEMENT ===
 @router.put("/users/{user_id}/profile-image", response_model=StandardResponse[UserResponse])
