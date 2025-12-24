@@ -14,7 +14,7 @@ from app.schemas.schemas import (
 )
 from app.core.security import create_access_token, get_password_hash, verify_password, verify_token
 from app.core.config import settings
-from app.services import email_service
+from app.services.email_service import email_service
 from app.services.auth import AuthService, OTPService
 from app.core.file_upload import FileUploadService
 
