@@ -599,25 +599,22 @@ async def get_vote_details_by_receipt(
         def safe_val(attr):
             return attr.value if hasattr(attr, 'value') else attr
 
-        # ✅ FIX: Correct full path for nested joinedload
+        # Corrected nested path
         ev = db.query(EncryptedVote).options(
             joinedload(EncryptedVote.election),
             joinedload(EncryptedVote.position),
-            # Path: Vote -> Candidate -> User
             joinedload(EncryptedVote.candidate).joinedload(Candidate.user),
-            # Path: Vote -> Candidate -> Party
             joinedload(EncryptedVote.candidate).joinedload(Candidate.party)
         ).filter(EncryptedVote.vote_receipt == vote_receipt).first()
 
         if not ev:
-            # 404 is the appropriate code for a missing resource
             return StandardResponse(
                 status=False,
-                error="Invalid receipt",
-                message="No vote record matches this receipt code."
+                error="NOT_FOUND",
+                message="Invalid receipt code. No record found."
             )
 
-        # Build response with safe Enum handling
+        # Build response safely
         vote_details = {
             "vote_receipt": ev.vote_receipt,
             "verification": {
@@ -634,8 +631,8 @@ async def get_vote_details_by_receipt(
             },
             "ballot_item": {
                 "position": ev.position.title if ev.position else "Unknown",
-                "candidate": ev.candidate.user.full_name if ev.candidate and ev.candidate.user else "Unknown",
-                "party": ev.candidate.party.acronym if ev.candidate and ev.candidate.party else "IND"
+                "candidate": ev.candidate.user.full_name if (ev.candidate and ev.candidate.user) else "Unknown",
+                "party": ev.candidate.party.acronym if (ev.candidate and ev.candidate.party) else "IND"
             }
         }
 
@@ -646,13 +643,13 @@ async def get_vote_details_by_receipt(
         )
 
     except Exception as e:
-        # Use 500 for actual code/server crashes
-        print(f"❌ Server Error: {str(e)}")
+        print(f"❌ Mapper Error: {str(e)}")
         return StandardResponse(
             status=False,
-            error="Internal Server Error",
-            message="An unexpected database mapping error occurred."
+            error="SERVER_ERROR",
+            message="An internal database mapping error occurred."
         )
+    
 @router.get("/my-votes", response_model=StandardResponse[dict])
 async def get_my_votes(
     current_user: User = Depends(get_current_active_user),
