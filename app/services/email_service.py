@@ -290,6 +290,34 @@ class EmailService:
             text_content=text_content
         )
 
+    def send_password_reset_email(self, user_email: str, user_name: str, reset_code: str) -> bool:
+            """Sends a 6-digit OTP for password reset"""
+            html_content = f"""
+            <html>
+                <body style="font-family: Arial, sans-serif; color: #333;">
+                    <div style="max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
+                        <h2 style="color: #764ba2; text-align: center;">Password Reset Request</h2>
+                        <p>Hello <strong>{user_name}</strong>,</p>
+                        <p>We received a request to reset your password. Use the code below to proceed:</p>
+                        <div style="text-align: center; margin: 30px 0;">
+                            <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #667eea; background: #f0f0ff; padding: 15px 30px; border-radius: 5px; border: 1px dashed #667eea;">
+                                {reset_code}
+                            </span>
+                        </div>
+                        <p>This code will expire in 10 minutes. If you did not request this, please ignore this email or contact support.</p>
+                        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+                        <p style="font-size: 12px; color: #999; text-align: center;">Secure Voting System &copy; {datetime.now().year}</p>
+                    </div>
+                </body>
+            </html>
+            """
+            return self.send_email(
+                to_email=user_email,
+                to_name=user_name,
+                subject="Your Password Reset Code",
+                html_content=html_content,
+                text_content=f"Your password reset code is: {reset_code}"
+            )
 
 # Create singleton instance
 email_service = EmailService()

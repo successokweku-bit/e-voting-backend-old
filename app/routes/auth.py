@@ -12,6 +12,7 @@ from app.schemas.schemas import (
 )
 from app.core.security import create_access_token, get_password_hash, verify_password, verify_token
 from app.core.config import settings
+from app.services import email_service
 from app.services.auth import AuthService, OTPService
 from app.core.file_upload import FileUploadService
 
@@ -128,8 +129,102 @@ async def register_user(
         )
 
 
+# # ============================================================
+# # 🔑 FORGOT PASSWORD
+# # ============================================================
+# @router.post("/forgot-password", response_model=StandardResponse[OTPResponse])
+# async def forgot_password(
+#     request: ForgotPasswordRequest,
+#     background_tasks: BackgroundTasks,
+#     db: Session = Depends(get_db)
+# ):
+#     try:
+#         user = db.query(User).filter(User.email == request.email).first()
+
+#         otp_response = OTPResponse(
+#             message="If the email exists, a reset code has been sent",
+#             email=request.email
+#         )
+
+#         if user:
+#             otp_code = OTPService.create_otp_record(db, request.email)
+#             print(f"OTP for {request.email}: {otp_code}")
+
+#         return StandardResponse[OTPResponse](
+#             status=True,
+#             data=otp_response,
+#             error=None,
+#             message="Reset code sent successfully"
+#         )
+
+#     except Exception as e:
+#         return StandardResponse[OTPResponse](
+#             status=False,
+#             data=None,
+#             error=str(e),
+#             message="Error sending reset code"
+#         )
+
+
+# # ============================================================
+# # 🔒 RESET PASSWORD
+# # ============================================================
+# @router.post("/reset-password", response_model=StandardResponse[dict])
+# async def reset_password(
+#     request: ResetPasswordRequest,
+#     db: Session = Depends(get_db)
+# ):
+#     try:
+#         payload = verify_token(request.token)
+#         if not payload:
+#             return StandardResponse[dict](
+#                 status=False,
+#                 data=None,
+#                 error="Invalid or expired reset token",
+#                 message="Password reset failed"
+#             )
+
+#         email = payload.get("sub")
+#         if not email:
+#             return StandardResponse[dict](
+#                 status=False,
+#                 data=None,
+#                 error="Invalid reset token",
+#                 message="Password reset failed"
+#             )
+
+#         user = db.query(User).filter(User.email == email).first()
+#         if not user:
+#             return StandardResponse[dict](
+#                 status=False,
+#                 data=None,
+#                 error="User not found",
+#                 message="Password reset failed"
+#             )
+
+#         from app.core.security import get_password_hash
+#         user.hashed_password = get_password_hash(request.new_password)
+#         db.commit()
+
+#         return StandardResponse[dict](
+#             status=True,
+#             data={"email": email},
+#             error=None,
+#             message="Password reset successfully"
+#         )
+
+#     except Exception as e:
+#         db.rollback()
+#         return StandardResponse[dict](
+#             status=False,
+#             data=None,
+#             error=str(e),
+#             message="Error resetting password"
+#         )
+
+
 # ============================================================
-# 🔑 FORGOT PASSWORD
+# 🔑 FORGOT PASSWORD (Updated to send Email)
 # ============================================================
 @router.post("/forgot-password", response_model=StandardResponse[OTPResponse])
 async def forgot_password(
@@ -140,87 +235,83 @@ async def forgot_password(
     try:
         user = db.query(User).filter(User.email == request.email).first()
 
+        # We return a success message regardless of existence to prevent email enumeration attacks
         otp_response = OTPResponse(
             message="If the email exists, a reset code has been sent",
             email=request.email
         )
 
         if user:
+            # Generate OTP
             otp_code = OTPService.create_otp_record(db, request.email)
-            print(f"OTP for {request.email}: {otp_code}")
+            
+            # Send Email via Background Task to keep response time fast
+            background_tasks.add_task(
+                email_service.send_password_reset_email,
+                user.email,
+                user.full_name,
+                otp_code
+            )
 
         return StandardResponse[OTPResponse](
             status=True,
             data=otp_response,
-            error=None,
             message="Reset code sent successfully"
         )
 
     except Exception as e:
         return StandardResponse[OTPResponse](
             status=False,
-            data=None,
             error=str(e),
-            message="Error sending reset code"
+            message="Error processing reset request"
         )
 
-
 # ============================================================
-# 🔒 RESET PASSWORD
+# 🔒 RESET PASSWORD (Updated to verify OTP)
 # ============================================================
 @router.post("/reset-password", response_model=StandardResponse[dict])
 async def reset_password(
-    request: ResetPasswordRequest,
+    request: ResetPasswordRequest, # Ensure this schema has email, otp_code, and new_password
     db: Session = Depends(get_db)
 ):
     try:
-        payload = verify_token(request.token)
-        if not payload:
-            return StandardResponse[dict](
+        # 1. Verify the OTP record in the DB
+        # Assuming OTPService.verify_otp checks if it exists, matches, and isn't expired
+        is_valid = OTPService.verify_otp(db, request.email, request.otp_code)
+        
+        if not is_valid:
+            return StandardResponse(
                 status=False,
-                data=None,
-                error="Invalid or expired reset token",
-                message="Password reset failed"
+                error="INVALID_OTP",
+                message="The reset code is invalid or has expired."
             )
 
-        email = payload.get("sub")
-        if not email:
-            return StandardResponse[dict](
-                status=False,
-                data=None,
-                error="Invalid reset token",
-                message="Password reset failed"
-            )
-
-        user = db.query(User).filter(User.email == email).first()
+        user = db.query(User).filter(User.email == request.email).first()
         if not user:
-            return StandardResponse[dict](
-                status=False,
-                data=None,
-                error="User not found",
-                message="Password reset failed"
-            )
+            return StandardResponse(status=False, error="USER_NOT_FOUND", message="User not found")
 
-        from app.core.security import get_password_hash
+        # 2. Update Password
         user.hashed_password = get_password_hash(request.new_password)
+        
+        # 3. Clean up OTP (Optional: delete the code so it can't be reused)
+        # OTPService.delete_otp(db, request.email)
+        
         db.commit()
 
-        return StandardResponse[dict](
+        return StandardResponse(
             status=True,
-            data={"email": email},
-            error=None,
-            message="Password reset successfully"
+            data={"email": request.email},
+            message="Password reset successfully. You can now log in with your new password."
         )
 
     except Exception as e:
         db.rollback()
-        return StandardResponse[dict](
+        return StandardResponse(
             status=False,
-            data=None,
             error=str(e),
             message="Error resetting password"
         )
-
+    
 
 # ============================================================
 # 👤 GET CURRENT USER
