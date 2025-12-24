@@ -480,7 +480,9 @@ class MyVotesResponse(BaseModel):
     
     model_config = ConfigDict(from_attributes=True)
 
-
+class VoteDetailsRequest(BaseModel):
+    vote_receipt: str
+    
 # Example usage in route response model:
 # @router.get("/my-votes", response_model=StandardResponse[MyVotesResponse])
 # async def get_my_votes(...):

@@ -590,94 +590,77 @@ async def cast_secure_vote(
             message="An unexpected error occurred while casting your vote"
         )
     
-@router.get("/vote/details-by-receipt", response_model=StandardResponse[dict])
+@router.post("/vote/details-by-receipt", response_model=StandardResponse[dict])
 async def get_vote_details_by_receipt(
-    vote_receipt: str = Query(..., description="Vote receipt code"),
+    request_data: VoteDetailsRequest,
     db: Session = Depends(get_db)
 ):
     """
-    🆕 Get vote details using receipt code (Public - no authentication required)
-    
-    This allows voters to look up their vote information using just their receipt
+    Get vote details using a secure receipt code via POST.
+    Body: {"vote_receipt": "string"}
     """
     try:
-        # Find the encrypted vote by receipt
-        encrypted_vote = db.query(EncryptedVote).filter(
-            EncryptedVote.vote_receipt == vote_receipt
-        ).first()
+        # Helper for Enum safety
+        def safe_val(attr):
+            return attr.value if hasattr(attr, 'value') else attr
 
-        if not encrypted_vote:
-            return StandardResponse[dict](
+        # 1. Fetch data using the receipt from the request body
+        ev = db.query(EncryptedVote).options(
+            joinedload(EncryptedVote.election),
+            joinedload(EncryptedVote.position),
+            joinedload(EncryptedVote.candidate).joinedload(Candidate.user),
+            joinedload(Candidate.party)
+        ).filter(EncryptedVote.vote_receipt == request_data.vote_receipt).first()
+
+        if not ev:
+            return StandardResponse(
                 status=False,
-                data=None,
-                error="Vote receipt not found",
-                message="Invalid receipt code"
+                error="Invalid receipt code",
+                message="No vote found matching this receipt."
             )
 
-        # Get related data
-        election = db.query(Election).filter(
-            Election.id == encrypted_vote.election_id
-        ).first()
-
-        position = db.query(Position).filter(
-            Position.id == encrypted_vote.position_id
-        ).first()
-
-        candidate = db.query(Candidate).options(
-            joinedload(Candidate.user),
-            joinedload(Candidate.party)
-        ).filter(
-            Candidate.id == encrypted_vote.candidate_id
-        ).first()
-
-        # Build response
+        # 2. Construct response
+        # Accessing ev.election.status triggers the @property logic we fixed
         vote_details = {
-            "vote_receipt": vote_receipt,
+            "vote_receipt": ev.vote_receipt,
+            "verification": {
+                "is_verified": ev.verified,
+                "is_tallied": ev.tallied,
+                "status_label": "Verified and Counted" if ev.tallied else "Pending Final Tally",
+                "vote_hash_fragment": ev.vote_hash[:16] + "..." if ev.vote_hash else None,
+                "timestamp": ev.cast_at.isoformat() if ev.cast_at else None
+            },
             "election": {
-                "id": election.id,
-                "title": election.title,
-                "description": election.description,
-                "election_type": election.election_type.value if election.election_type else None,
-                "state": election.state.value if election.state else None
-            } if election else None,
-            "position": {
-                "id": position.id,
-                "title": position.title,
-                "description": position.description
-            } if position else None,
-            "candidate": {
-                "id": candidate.id,
-                "name": candidate.user.full_name if candidate.user else "Unknown",
-                "bio": candidate.bio,
+                "id": ev.election.id,
+                "title": ev.election.title,
+                "type": safe_val(ev.election.election_type),
+                "current_status": safe_val(ev.election.status) 
+            },
+            "ballot_item": {
+                "position": ev.position.title if ev.position else "Unknown",
+                "candidate": ev.candidate.user.full_name if ev.candidate and ev.candidate.user else "Unknown",
                 "party": {
-                    "name": candidate.party.name,
-                    "acronym": candidate.party.acronym,
-                    "logo_url": candidate.party.logo_url
-                } if candidate.party else None
-            } if candidate else None,
-            "cast_at": encrypted_vote.cast_at.isoformat() if encrypted_vote.cast_at else None,
-            "verified": encrypted_vote.verified,
-            "tallied": encrypted_vote.tallied,
-            "vote_hash": encrypted_vote.vote_hash[:16] + "..." if encrypted_vote.vote_hash else None,
-            "status": "Verified and Counted" if encrypted_vote.tallied else "Pending Verification"
+                    "name": ev.candidate.party.name,
+                    "acronym": ev.candidate.party.acronym,
+                    "logo": ev.candidate.party.logo_url
+                } if ev.candidate and ev.candidate.party else None
+            }
         }
 
-        return StandardResponse[dict](
+        return StandardResponse(
             status=True,
             data=vote_details,
-            error=None,
             message="Vote details retrieved successfully"
         )
 
     except Exception as e:
-        print(f"❌ Error retrieving vote details: {str(e)}")
-        return StandardResponse[dict](
+        print(f"❌ Error in receipt lookup: {str(e)}")
+        return StandardResponse(
             status=False,
-            data=None,
             error=str(e),
-            message="Failed to retrieve vote details"
+            message="An error occurred during verification"
         )
-
+     
 @router.get("/my-votes", response_model=StandardResponse[dict])
 async def get_my_votes(
     current_user: User = Depends(get_current_active_user),
@@ -765,9 +748,7 @@ async def get_my_votes(
             error=str(e),
             message="Error retrieving your voting history"
         )
-    
-# Other existing secure voting endpoints...
-
+  
 @router.post("/elections/{election_id}/tally-secure", response_model=StandardResponse[dict])
 async def tally_secure_votes(
     election_id: int, 
