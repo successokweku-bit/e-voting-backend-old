@@ -12,7 +12,7 @@ from app.models.models import (
 from app.schemas.schemas import (
     ElectionCreate, ElectionResponse, ElectionWithPositions,
     PositionCreate, PositionResponse, 
-    CandidateCreate, CandidateResponse, CandidateElectionResponse,
+    CandidateCreate, CandidateResponse, CandidateElectionResponse, VoteDetailsRequest,
     VoteRequest, VoteResponse, StandardResponse, PoliticalPartyResponse,
     CandidateWithVotes, PositionWithCandidates, PartyResponse, SecureVoteResult
 )
