@@ -1,7 +1,7 @@
 
 from app.core.database import get_db
 from app.schemas.schemas import ForgotPasswordRequest, OTPResponse, ResetPasswordRequest, StandardResponse
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query, UploadFile, File, Form
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
@@ -25,24 +25,22 @@ router = APIRouter()
 # ============================================================
 @router.post("/forgot-password", response_model=StandardResponse[OTPResponse])
 async def forgot_password(
-    request: ForgotPasswordRequest,
-    background_tasks: BackgroundTasks,
+    email: str = Form(..., description="The registered email address"), # ✅ Now accepting Form Data
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db)
 ):
     try:
-        user = db.query(User).filter(User.email == request.email).first()
+        user = db.query(User).filter(User.email == email).first()
 
-        # We return a success message regardless of existence to prevent email enumeration attacks
         otp_response = OTPResponse(
             message="If the email exists, a reset code has been sent",
-            email=request.email
+            email=email
         )
 
         if user:
-            # Generate OTP
-            otp_code = OTPService.create_otp_record(db, request.email)
+            otp_code = OTPService.create_otp_record(db, email)
             
-            # Send Email via Background Task to keep response time fast
+            # Use background tasks for SMTP to prevent request timeouts
             background_tasks.add_task(
                 email_service.send_password_reset_email,
                 user.email,
@@ -62,19 +60,20 @@ async def forgot_password(
             error=str(e),
             message="Error processing reset request"
         )
-
+    
 # ============================================================
 # 🔒 RESET PASSWORD (Updated to verify OTP)
 # ============================================================
 @router.post("/reset-password", response_model=StandardResponse[dict])
 async def reset_password(
-    request: ResetPasswordRequest, # Ensure this schema has email, otp_code, and new_password
+    email: str = Form(...),
+    otp_code: str = Form(...),
+    new_password: str = Form(...),
     db: Session = Depends(get_db)
 ):
     try:
         # 1. Verify the OTP record in the DB
-        # Assuming OTPService.verify_otp checks if it exists, matches, and isn't expired
-        is_valid = OTPService.verify_otp(db, request.email, request.otp_code)
+        is_valid = OTPService.verify_otp(db, email, otp_code)
         
         if not is_valid:
             return StandardResponse(
@@ -83,21 +82,23 @@ async def reset_password(
                 message="The reset code is invalid or has expired."
             )
 
-        user = db.query(User).filter(User.email == request.email).first()
+        user = db.query(User).filter(User.email == email).first()
         if not user:
-            return StandardResponse(status=False, error="USER_NOT_FOUND", message="User not found")
+            return StandardResponse(
+                status=False, 
+                error="USER_NOT_FOUND", 
+                message="User not found"
+            )
 
         # 2. Update Password
-        user.hashed_password = get_password_hash(request.new_password)
+        user.hashed_password = get_password_hash(new_password)
         
-        # 3. Clean up OTP (Optional: delete the code so it can't be reused)
-        # OTPService.delete_otp(db, request.email)
-        
+        # 3. Commit changes
         db.commit()
 
         return StandardResponse(
             status=True,
-            data={"email": request.email},
+            data={"email": email},
             message="Password reset successfully. You can now log in with your new password."
         )
 
