@@ -161,26 +161,25 @@ class ResetPasswordRequest(BaseModel):
 # -------------------------
 class ElectionBase(BaseModel):
     title: str
-    description: Optional[str] = None
+    description: str | None
     election_type: ElectionType
-    state: Optional[State] = None
-    is_active: bool = False
-    start_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
+    state: State | None
+    is_active: bool
+    start_date: datetime | None
+    end_date: datetime | None
 
 class ElectionCreate(ElectionBase):
     pass
 
 class ElectionStatus(str, Enum):
-    ACTIVE = "active"
-    INACTIVE = "inactive"
-    COMPLETED = "completed"
+    UPCOMING = "upcoming"
+    ONGOING = "ongoing"
+    PAST = "past"
 
 class ElectionResponse(ElectionBase):
     id: int
     created_at: datetime
     status: ElectionStatus
-    
     model_config = ConfigDict(from_attributes=True)
 
 

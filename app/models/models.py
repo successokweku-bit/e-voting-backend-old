@@ -1,3 +1,4 @@
+from pydantic import ConfigDict
 from sqlalchemy import (
     Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Enum, UniqueConstraint, JSON
 )
@@ -162,11 +163,11 @@ class OTP(Base):
 
 class Election(Base):
     __tablename__ = "elections"
-    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
     description = Column(Text)
+
     election_type = Column(
         Enum(
             ElectionType,
@@ -175,6 +176,7 @@ class Election(Base):
         ),
         nullable=False
     )
+
     state = Column(
         Enum(
             State,
@@ -183,29 +185,38 @@ class Election(Base):
         ),
         nullable=True
     )
+
     is_active = Column(Boolean, default=False)
     start_date = Column(DateTime(timezone=True))
     end_date = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
-    positions = relationship("Position", back_populates="election")
     votes = relationship("Vote", back_populates="election")
-    encrypted_votes = relationship("EncryptedVote", back_populates="election")
     candidates = relationship("Candidate", back_populates="election")
+    positions = relationship("Position", back_populates="election", cascade="all, delete-orphan")
+    encrypted_votes = relationship("EncryptedVote", back_populates="election")
     tallies = relationship("ElectionTally", back_populates="election")
-
+    
+    # ✅ COMPUTED STATUS
     @property
     def status(self) -> ElectionStatus:
         now = datetime.now(timezone.utc)
 
+        if not self.is_active:
+            return ElectionStatus.UPCOMING
+
         if self.start_date and now < self.start_date:
             return ElectionStatus.UPCOMING
 
-        if self.end_date and self.start_date <= now <= self.end_date:
+        if self.start_date and self.end_date and self.start_date <= now <= self.end_date:
             return ElectionStatus.ONGOING
 
-        return ElectionStatus.PAST
+        if self.end_date and now > self.end_date:
+            return ElectionStatus.PAST
+
+        return ElectionStatus.UPCOMING
+    
 
 class Position(Base):
     __tablename__ = "positions"

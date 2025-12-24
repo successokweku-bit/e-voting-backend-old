@@ -31,28 +31,6 @@ router = APIRouter()
 
 # === EXISTING ENDPOINTS (keeping them as they are) ===
 
-# @router.get("/elections/active", response_model=StandardResponse[List[ElectionResponse]])
-# async def get_active_elections(db: Session = Depends(get_db)):
-#     """Get all active elections (Public)"""
-#     try:
-#         elections = db.query(Election).filter(Election.is_active == True).all()
-#         elections_response = [ElectionResponse.model_validate(election) for election in elections]
-        
-#         return StandardResponse[List[ElectionResponse]](
-#             status=True,
-#             data=elections_response,
-#             error=None,
-#             message=f"Found {len(elections_response)} active elections"
-#         )
-        
-#     except Exception as e:
-#         return StandardResponse[List[ElectionResponse]](
-#             status=False,
-#             data=None,
-#             error=str(e),
-#             message="Error retrieving active elections"
-#         )
-
 @router.get("/elections/active", response_model=StandardResponse[List[ElectionResponse]])
 async def get_active_elections(db: Session = Depends(get_db)):
     """Get all active elections (Public)"""
