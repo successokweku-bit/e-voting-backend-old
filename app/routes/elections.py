@@ -684,130 +684,88 @@ async def get_my_votes(
     db: Session = Depends(get_db)
 ):
     """
-    🆕 Get all votes cast by the current user across all elections
-    
-    Returns complete details of all elections, positions, and candidates voted for
+    Get all votes cast by the current user across all elections.
+    Groups votes by election for a clear participation history.
     """
     try:
-        # Get all encrypted votes for this user by checking anonymous voter IDs
-        # We need to reconstruct the anonymous IDs for all possible combinations
-        
-        # Get all elections
+        # Helper for Enum safety
+        def safe_val(attr):
+            return attr.value if hasattr(attr, 'value') else attr
+
+        # 1. Fetch all elections to check participation
         elections = db.query(Election).all()
-        
-        my_votes = []
-        
+        votes_by_election = []
+        total_votes_count = 0
+
         for election in elections:
-            # Get all positions in this election
-            positions = db.query(Position).filter(
-                Position.election_id == election.id
-            ).all()
+            election_votes = []
+            
+            # Fetch positions for this specific election
+            positions = db.query(Position).filter(Position.election_id == election.id).all()
             
             for position in positions:
-                # Generate anonymous voter ID for this user, election, and position
-                anonymous_voter_id = SecureVotingService._generate_anonymous_id(
-                    current_user.id,
-                    election.id,
-                    position.id
+                # Reconstruct the anonymous ID for this specific position
+                # This ensures the link remains private in the DB but accessible to the owner
+                anon_id = SecureVotingService._generate_anonymous_id(
+                    current_user.id, election.id, position.id
                 )
                 
-                # Check if there's a vote with this anonymous ID
-                encrypted_vote = db.query(EncryptedVote).filter(
-                    EncryptedVote.anonymous_voter_id == anonymous_voter_id,
+                # Check for the vote
+                vote = db.query(EncryptedVote).filter(
+                    EncryptedVote.anonymous_voter_id == anon_id,
                     EncryptedVote.election_id == election.id,
                     EncryptedVote.position_id == position.id
                 ).first()
-                
-                if encrypted_vote:
-                    # Get candidate details
+
+                if vote:
+                    # Get candidate info with joined user/party
                     candidate = db.query(Candidate).options(
                         joinedload(Candidate.user),
                         joinedload(Candidate.party)
-                    ).filter(
-                        Candidate.id == encrypted_vote.candidate_id
-                    ).first()
-                    
-                    vote_info = {
-                        "vote_id": encrypted_vote.id,
-                        "vote_receipt": encrypted_vote.vote_receipt,
-                        "election": {
-                            "id": election.id,
-                            "title": election.title,
-                            "description": election.description,
-                            "election_type": election.election_type.value if election.election_type else None,
-                            "state": election.state.value if election.state else None,
-                            "start_date": election.start_date.isoformat() if election.start_date else None,
-                            "end_date": election.end_date.isoformat() if election.end_date else None,
-                            "is_active": election.is_active
-                        },
-                        "position": {
-                            "id": position.id,
-                            "title": position.title,
-                            "description": position.description
-                        },
-                        "candidate": {
-                            "id": candidate.id,
-                            "name": candidate.user.full_name if candidate.user else "Unknown",
-                            "bio": candidate.bio,
-                            "manifestos": candidate.manifestos,
-                            "party": {
-                                "id": candidate.party.id,
-                                "name": candidate.party.name,
-                                "acronym": candidate.party.acronym,
-                                "logo_url": candidate.party.logo_url
-                            } if candidate.party else None
-                        } if candidate else None,
-                        "cast_at": encrypted_vote.cast_at.isoformat() if encrypted_vote.cast_at else None,
-                        "verified": encrypted_vote.verified,
-                        "tallied": encrypted_vote.tallied,
-                        "status": "Verified and Counted" if encrypted_vote.tallied else "Pending Verification"
-                    }
-                    
-                    my_votes.append(vote_info)
-        
-        # Group votes by election
-        votes_by_election = {}
-        for vote in my_votes:
-            election_id = vote["election"]["id"]
-            if election_id not in votes_by_election:
-                votes_by_election[election_id] = {
-                    "election": vote["election"],
-                    "votes": []
-                }
-            votes_by_election[election_id]["votes"].append({
-                "vote_receipt": vote["vote_receipt"],
-                "position": vote["position"],
-                "candidate": vote["candidate"],
-                "cast_at": vote["cast_at"],
-                "verified": vote["verified"],
-                "status": vote["status"]
-            })
-        
-        result = {
-            "total_votes": len(my_votes),
-            "total_elections_participated": len(votes_by_election),
-            "votes_by_election": list(votes_by_election.values()),
-            "all_votes": my_votes  # Also include flat list for easier access
-        }
+                    ).filter(Candidate.id == vote.candidate_id).first()
 
-        return StandardResponse[dict](
+                    election_votes.append({
+                        "position_title": position.title,
+                        "candidate_name": candidate.user.full_name if candidate and candidate.user else "Unknown",
+                        "party_acronym": candidate.party.acronym if candidate and candidate.party else "IND",
+                        "vote_receipt": vote.vote_receipt,
+                        "cast_at": vote.cast_at,
+                        "status": "Counted" if vote.tallied else "Verified"
+                    })
+                    total_votes_count += 1
+
+            # Only add to results if the user actually voted in this election
+            if election_votes:
+                votes_by_election.append({
+                    "election_details": {
+                        "id": election.id,
+                        "title": election.title,
+                        "status": safe_val(election.status), # Accesses your @property
+                        "type": safe_val(election.election_type)
+                    },
+                    "my_ballot": election_votes
+                })
+
+        return StandardResponse(
             status=True,
-            data=result,
-            error=None,
-            message=f"Retrieved {len(my_votes)} votes across {len(votes_by_election)} elections"
+            data={
+                "summary": {
+                    "total_votes_cast": total_votes_count,
+                    "elections_attended": len(votes_by_election)
+                },
+                "history": votes_by_election
+            },
+            message="Voting history retrieved successfully"
         )
 
     except Exception as e:
-        print(f"❌ Error retrieving user votes: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return StandardResponse[dict](
+        print(f"❌ Error in get_my_votes: {str(e)}")
+        return StandardResponse(
             status=False,
-            data=None,
             error=str(e),
-            message="Failed to retrieve your votes"
+            message="Error retrieving your voting history"
         )
-
+    
 # Other existing secure voting endpoints...
 
 @router.post("/elections/{election_id}/tally-secure", response_model=StandardResponse[dict])
