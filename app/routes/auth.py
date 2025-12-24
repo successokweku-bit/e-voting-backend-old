@@ -6,11 +6,11 @@ from datetime import timedelta
 from app.models.database import get_db
 from app.models.models import User, Election, Vote
 from app.schemas.schemas import (
-    Token, LoginRequest, UserCreate, UserResponse, 
+    ChangePasswordRequest, Token, LoginRequest, UserCreate, UserResponse, 
     ForgotPasswordRequest, ResetPasswordRequest, OTPResponse,
     StandardResponse
 )
-from app.core.security import create_access_token, verify_token
+from app.core.security import create_access_token, get_password_hash, verify_password, verify_token
 from app.core.config import settings
 from app.services.auth import AuthService, OTPService
 from app.core.file_upload import FileUploadService
@@ -398,4 +398,55 @@ async def get_my_voter_profile(
             data=None,
             error=str(e),
             message="Error retrieving voter profile"
+        )
+
+
+@router.post("/auth/change-password", response_model=StandardResponse[dict])
+async def change_password(
+    data: ChangePasswordRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Change password for the authenticated user
+    """
+    try:
+        # 1. Verify that the old password provided matches the database
+        if not verify_password(data.old_password, current_user.hashed_password):
+            return StandardResponse(
+                status=False,
+                error="INVALID_PASSWORD",
+                message="The old password you entered is incorrect."
+            )
+
+        # 2. Prevent using the same password again (Optional but recommended)
+        if data.old_password == data.new_password:
+            return StandardResponse(
+                status=False,
+                error="SAME_PASSWORD",
+                message="New password cannot be the same as the old password."
+            )
+
+        # 3. Hash the new password and update the user record
+        current_user.hashed_password = get_password_hash(data.new_password)
+        
+        db.add(current_user)
+        db.commit()
+        db.refresh(current_user)
+
+        # 4. (Optional) Audit log for security
+        # create_audit_log(db, user_id=current_user.id, action="PASSWORD_CHANGE")
+
+        return StandardResponse(
+            status=True,
+            data={"user_id": current_user.id},
+            message="Password updated successfully. Please log in again with your new credentials."
+        )
+
+    except Exception as e:
+        db.rollback()
+        return StandardResponse(
+            status=False,
+            error="SERVER_ERROR",
+            message=f"An error occurred: {str(e)}"
         )
