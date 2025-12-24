@@ -482,7 +482,19 @@ class MyVotesResponse(BaseModel):
 
 class VoteDetailsRequest(BaseModel):
     vote_receipt: str
-    
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str = Field(..., min_length=8)
+    new_password: str = Field(..., min_length=8)
+    confirm_password: str = Field(..., min_length=8)
+
+    @field_validator('confirm_password')
+    @classmethod
+    def passwords_match(cls, v, info):
+        if 'new_password' in info.data and v != info.data['new_password']:
+            raise ValueError('New passwords do not match')
+        return v
+
 # Example usage in route response model:
 # @router.get("/my-votes", response_model=StandardResponse[MyVotesResponse])
 # async def get_my_votes(...):
