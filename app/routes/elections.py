@@ -592,25 +592,23 @@ async def cast_secure_vote(
     
 @router.post("/vote/details-by-receipt", response_model=StandardResponse[dict])
 async def get_vote_details_by_receipt(
-    request_data: VoteDetailsRequest,
+    vote_receipt: str = Form(..., description="Vote receipt code"), # ✅ Fix: use Form
     db: Session = Depends(get_db)
 ):
     """
-    Get vote details using a secure receipt code via POST.
-    Body: {"vote_receipt": "string"}
+    Get vote details using a secure receipt code via Form Data.
     """
     try:
-        # Helper for Enum safety
         def safe_val(attr):
             return attr.value if hasattr(attr, 'value') else attr
 
-        # 1. Fetch data using the receipt from the request body
+        # Fetch data using the receipt from Form Data
         ev = db.query(EncryptedVote).options(
             joinedload(EncryptedVote.election),
             joinedload(EncryptedVote.position),
             joinedload(EncryptedVote.candidate).joinedload(Candidate.user),
             joinedload(Candidate.party)
-        ).filter(EncryptedVote.vote_receipt == request_data.vote_receipt).first()
+        ).filter(EncryptedVote.vote_receipt == vote_receipt).first() # Use the string directly
 
         if not ev:
             return StandardResponse(
@@ -619,8 +617,7 @@ async def get_vote_details_by_receipt(
                 message="No vote found matching this receipt."
             )
 
-        # 2. Construct response
-        # Accessing ev.election.status triggers the @property logic we fixed
+        # ... (rest of the logic remains the same)
         vote_details = {
             "vote_receipt": ev.vote_receipt,
             "verification": {
@@ -654,13 +651,8 @@ async def get_vote_details_by_receipt(
         )
 
     except Exception as e:
-        print(f"❌ Error in receipt lookup: {str(e)}")
-        return StandardResponse(
-            status=False,
-            error=str(e),
-            message="An error occurred during verification"
-        )
-     
+        return StandardResponse(status=False, error=str(e), message="Verification error")  
+
 @router.get("/my-votes", response_model=StandardResponse[dict])
 async def get_my_votes(
     current_user: User = Depends(get_current_active_user),
