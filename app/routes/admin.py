@@ -1510,6 +1510,121 @@ async def delete_election(
             message="Error deleting election"
         )
 
+# @router.get(
+#     "/elections/{election_id}/tracking",
+#     response_model=StandardResponse[dict],
+#     summary="Track Individual Election (Encrypted Votes)"
+# )
+# async def track_individual_election(
+#     election_id: int,
+#     current_user = Depends(get_current_admin),
+#     db: Session = Depends(get_db)
+# ):
+#     try:
+#         election = db.query(Election).filter(Election.id == election_id).first()
+
+#         if not election:
+#             return StandardResponse(
+#                 status=False,
+#                 message="Election not found",
+#                 data=None,
+#                 error="No election exists with the provided ID"
+#             )
+
+#         # ---- SAFE COUNTS ----
+#         total_votes = db.query(EncryptedVote).filter(
+#             EncryptedVote.election_id == election_id
+#         ).count()
+
+#         verified_votes = db.query(EncryptedVote).filter(
+#             EncryptedVote.election_id == election_id,
+#             EncryptedVote.verified.is_(True)
+#         ).count()
+
+#         tallied_votes = db.query(EncryptedVote).filter(
+#             EncryptedVote.election_id == election_id,
+#             EncryptedVote.tallied.is_(True)
+#         ).count()
+
+#         receipt_verifications = db.query(VoteVerification).join(
+#             EncryptedVote,
+#             VoteVerification.vote_receipt == EncryptedVote.vote_receipt
+#         ).filter(
+#             EncryptedVote.election_id == election_id
+#         ).count()
+
+#         # ---- POSITIONS AND CANDIDATES ----
+#         positions_data = []
+#         for position in election.positions:
+#             candidates_data = []
+
+#             for candidate in position.candidates:
+#                 vote_count = db.query(EncryptedVote).filter(
+#                     EncryptedVote.election_id == election_id,
+#                     EncryptedVote.position_id == position.id,
+#                     EncryptedVote.candidate_id == candidate.id
+#                 ).count()
+
+#                 candidates_data.append({
+#                     "candidate_id": candidate.id,
+#                     "candidate_name": candidate.user.full_name if candidate.user else "Unknown",
+#                     "vote_count": vote_count
+#                 })
+
+#             positions_data.append({
+#                 "position_id": position.id,
+#                 "title": position.title,
+#                 "total_votes": sum(c["vote_count"] for c in candidates_data),
+#                 "candidates": candidates_data
+#             })
+
+#         # ---- TIMELINE DATA ----
+#         timeline = db.query(
+#             func.date_trunc("hour", EncryptedVote.cast_at).label("hour"),
+#             func.count().label("votes")
+#         ).filter(
+#             EncryptedVote.election_id == election_id
+#         ).group_by("hour").order_by("hour").all()
+
+#         timeline_data = [
+#             {"hour": row.hour.isoformat(), "votes": row.votes}
+#             for row in timeline
+#         ]
+
+#         return StandardResponse(
+#             status=True,
+#             message="Election tracking data retrieved successfully",
+#             data={
+#                 "election": {
+#                     "id": election.id,
+#                     "title": election.title,
+#                     "status": election.status if election.status else None,
+#                     "is_active": election.is_active,
+#                     "start_date": election.start_date.isoformat() if election.start_date else None,
+#                     "end_date": election.end_date.isoformat() if election.end_date else None
+#                 },
+#                 "totals": {
+#                     "votes_cast": total_votes,
+#                     "verified_votes": verified_votes,
+#                     "unverified_votes": total_votes - verified_votes,
+#                     "tallied_votes": tallied_votes,
+#                     "receipt_verifications": receipt_verifications
+#                 },
+#                 "positions": positions_data,
+#                 "timeline": timeline_data
+#             },
+#             error=None
+#         )
+
+#     except Exception as exc:
+#         return StandardResponse(
+#             status=False,
+#             message="Failed to retrieve election tracking data",
+#             data=None,
+#             error=str(exc)
+#         )
+    
+
 @router.get(
     "/elections/{election_id}/tracking",
     response_model=StandardResponse[dict],
@@ -1557,7 +1672,8 @@ async def track_individual_election(
         positions_data = []
         for position in election.positions:
             candidates_data = []
-
+            
+            # 1. Fetch vote counts for all candidates in this position
             for candidate in position.candidates:
                 vote_count = db.query(EncryptedVote).filter(
                     EncryptedVote.election_id == election_id,
@@ -1571,10 +1687,29 @@ async def track_individual_election(
                     "vote_count": vote_count
                 })
 
+            # 2. Calculate Position Total
+            pos_total_votes = sum(c["vote_count"] for c in candidates_data)
+
+            # 3. Calculate Percentages and Identify Winner
+            winner = None
+            max_votes = -1
+
+            for c in candidates_data:
+                # Calculate Percentage
+                c["percentage"] = round((c["vote_count"] / pos_total_votes * 100), 2) if pos_total_votes > 0 else 0
+                
+                # Determine Winner (logic: highest votes; if 0 votes, no winner)
+                if c["vote_count"] > max_votes and c["vote_count"] > 0:
+                    max_votes = c["vote_count"]
+                    winner = c["candidate_name"]
+                elif c["vote_count"] == max_votes and max_votes > 0:
+                    winner = "Tie"
+
             positions_data.append({
                 "position_id": position.id,
                 "title": position.title,
-                "total_votes": sum(c["vote_count"] for c in candidates_data),
+                "total_votes": pos_total_votes,
+                "winner": winner if pos_total_votes > 0 else "No votes cast",
                 "candidates": candidates_data
             })
 
@@ -1624,6 +1759,101 @@ async def track_individual_election(
             error=str(exc)
         )
     
+# @router.get(
+#     "/elections/{election_id}/tracking",
+#     response_model=StandardResponse[dict],
+#     summary="Track Individual Election (Encrypted Votes)"
+# )
+# async def track_individual_election(
+#     election_id: int,
+#     current_user = Depends(get_current_admin),
+#     db: Session = Depends(get_db)
+# ):
+#     try:
+#         election = db.query(Election).filter(Election.id == election_id).first()
+
+#         if not election:
+#             return StandardResponse(
+#                 status=False,
+#                 message="Election not found",
+#                 data=None,
+#                 error="No election exists with the provided ID"
+#             )
+
+#         is_completed = election.status.value == "PAST"
+
+#         positions_data = []
+
+#         for position in election.positions:
+#             candidates_data = []
+#             total_position_votes = 0
+
+#             # ---- Count votes per candidate ----
+#             for candidate in position.candidates:
+#                 vote_count = db.query(EncryptedVote).filter(
+#                     EncryptedVote.election_id == election.id,
+#                     EncryptedVote.position_id == position.id,
+#                     EncryptedVote.candidate_id == candidate.id
+#                 ).count()
+
+#                 total_position_votes += vote_count
+
+#                 candidates_data.append({
+#                     "candidate_id": candidate.id,
+#                     "candidate_name": candidate.full_name,
+#                     "vote_count": vote_count  # percentage added later
+#                 })
+
+#             # ---- Add percentages ----
+#             for c in candidates_data:
+#                 c["percentage"] = (
+#                     round((c["vote_count"] / total_position_votes) * 100, 2)
+#                     if total_position_votes > 0 else 0.0
+#                 )
+
+#             # ---- Determine winner ONLY if election ended ---- 🔹
+#             winner_data = None
+#             if is_completed and total_position_votes > 0:
+#                 max_votes = max(c["vote_count"] for c in candidates_data)
+#                 winners = [c for c in candidates_data if c["vote_count"] == max_votes]
+
+#                 winner_data = {
+#                     "is_tie": len(winners) > 1,
+#                     "winners": winners
+#                 }
+
+#             positions_data.append({
+#                 "position_id": position.id,
+#                 "title": position.title,
+#                 "total_votes": total_position_votes,
+#                 "candidates": candidates_data,
+#                 "winner": winner_data if is_completed else None
+#             })
+
+#         return StandardResponse(
+#             status=True,
+#             message="Election tracking data retrieved successfully",
+#             data={
+#                 "election": {
+#                     "id": election.id,
+#                     "title": election.title,
+#                     "status": election.status.value,
+#                     "has_ended": is_completed
+#                 },
+#                 "positions": positions_data
+#             },
+#             error=None
+#         )
+
+#     except Exception as exc:
+#         return StandardResponse(
+#             status=False,
+#             message="Failed to retrieve election tracking data",
+#             data=None,
+#             error=str(exc)
+#         )
+
+
 # === USER PROFILE IMAGE MANAGEMENT ===
 @router.put("/users/{user_id}/profile-image", response_model=StandardResponse[UserResponse])
 async def update_user_profile_image(
