@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from app.models.database import get_db
 from app.models.models import (
-    Election, Position, Candidate, Vote, User, State, ElectionType, 
+    Election, ElectionStatus, Position, Candidate, Vote, User, State, ElectionType, 
     PoliticalParty, EncryptedVote, VoteVerification
 )
 from app.schemas.schemas import (
@@ -29,14 +29,53 @@ def get_current_utc_time():
 
 router = APIRouter()
 
-# === EXISTING ENDPOINTS (keeping them as they are) ===
+# @router.get("/elections/active", response_model=StandardResponse[List[ElectionResponse]])
+# async def get_active_elections(db: Session = Depends(get_db)):
+#     """Get all active elections (Public)"""
+#     try:
+#         now = datetime.utcnow()
 
+#         elections = (
+#             db.query(Election)
+#             .filter(
+#                 Election.is_active == True,
+#                 Election.start_date <= now,
+#                 or_(
+#                     Election.end_date == None,
+#                     Election.end_date >= now
+#                 )
+#             )
+#             .all()
+#         )
+
+#         elections_response = [
+#             ElectionResponse.model_validate(election)
+#             for election in elections
+#         ]
+
+#         return StandardResponse[List[ElectionResponse]](
+#             status=True,
+#             data=elections_response,
+#             error=None,
+#             message=f"Found {len(elections_response)} active elections"
+#         )
+
+#     except Exception as e:
+#         return StandardResponse[List[ElectionResponse]](
+#             status=False,
+#             data=None,
+#             error=str(e),
+#             message="Error retrieving active elections"
+#         )
+    
 @router.get("/elections/active", response_model=StandardResponse[List[ElectionResponse]])
 async def get_active_elections(db: Session = Depends(get_db)):
     """Get all active elections (Public)"""
     try:
-        now = datetime.utcnow()
+        # 1. Use timezone-aware UTC for accurate comparison
+        now = datetime.now(timezone.utc)
 
+        # 2. Query for elections that are marked active and are within the date range
         elections = (
             db.query(Election)
             .filter(
@@ -50,23 +89,41 @@ async def get_active_elections(db: Session = Depends(get_db)):
             .all()
         )
 
-        elections_response = [
-            ElectionResponse.model_validate(election)
-            for election in elections
-        ]
+        # 3. Safe serialization helper (defined inside or outside the function)
+        def get_val(attr):
+            return attr.value if hasattr(attr, 'value') else attr
 
-        return StandardResponse[List[ElectionResponse]](
+        elections_response = []
+        for election in elections:
+            # We manually construct the response or use model_validate 
+            # while ensuring the Enum attributes are safe.
+            # accessing 'election.status' here triggers your @property logic.
+            
+            data = {
+                "id": election.id,
+                "title": election.title,
+                "description": election.description,
+                "election_type": get_val(election.election_type),
+                "state": get_val(election.state),
+                "status": get_val(election.status), # This handles the @property
+                "is_active": election.is_active,
+                "start_date": election.start_date,
+                "end_date": election.end_date,
+                "created_at": election.created_at
+            }
+            elections_response.append(ElectionResponse(**data))
+
+        return StandardResponse(
             status=True,
             data=elections_response,
-            error=None,
             message=f"Found {len(elections_response)} active elections"
         )
-
     except Exception as e:
-        return StandardResponse[List[ElectionResponse]](
-            status=False,
-            data=None,
-            error=str(e),
+        # Logging the error is helpful for debugging
+        print(f"Error in get_active_elections: {e}")
+        return StandardResponse(
+            status=False, 
+            error=str(e), 
             message="Error retrieving active elections"
         )
     
@@ -77,29 +134,38 @@ async def get_election_details(
 ):
     """Get election details with positions and candidates (Public)"""
     try:
-        election = db.query(Election).filter(Election.id == election_id).first()
+        # Helper to handle Enum vs String serialization
+        def safe_val(attr):
+            return attr.value if hasattr(attr, 'value') else attr
+
+        # 1. Use joinedload to fetch everything in one go for performance
+        election = db.query(Election).options(
+            joinedload(Election.positions).joinedload(Position.candidates).joinedload(Candidate.user),
+            joinedload(Election.positions).joinedload(Position.candidates).joinedload(Candidate.party)
+        ).filter(Election.id == election_id).first()
+        
         if not election:
-            return StandardResponse[ElectionWithPositions](
+            return StandardResponse(
                 status=False,
-                data=None,
                 error="Election not found",
                 message="Election retrieval failed"
             )
-        
-        positions = db.query(Position).filter(Position.election_id == election_id).all()
-        
+
+        # 2. Map positions
         positions_with_candidates = []
-        for position in positions:
-            candidates = db.query(Candidate).filter(Candidate.position_id == position.id).all()
+        for position in election.positions:
             
             candidates_with_votes = []
-            for candidate in candidates:
+            for candidate in position.candidates:
                 if not candidate.user:
-                    print(f"⚠️  Warning: Candidate {candidate.id} has no associated user")
                     continue
                 
-                vote_count = db.query(Vote).filter(Vote.candidate_id == candidate.id).count()
+                # Count votes from the secure table
+                vote_count = db.query(EncryptedVote).filter(
+                    EncryptedVote.candidate_id == candidate.id
+                ).count()
                 
+                # Manual construction to avoid Enum crash inside nested CandidateWithVotes
                 candidate_data = CandidateWithVotes(
                     id=candidate.id,
                     user_id=candidate.user_id,
@@ -107,37 +173,45 @@ async def get_election_details(
                     position_id=candidate.position_id,
                     party_id=candidate.party_id,
                     bio=candidate.bio,
-                    manifestos=candidate.manifestos if candidate.manifestos else [],
-                    election=Election(
+                    manifestos=candidate.manifestos or [],
+                    # Serialize election part safely
+                    election=ElectionResponse(
                         id=election.id,
                         title=election.title,
                         description=election.description,
-                        election_type=election.election_type,
-                        state=election.state,
+                        election_type=safe_val(election.election_type),
+                        state=safe_val(election.state),
+                        status=safe_val(election.status), # Accesses @property safely
+                        is_active=election.is_active,
                         start_date=election.start_date,
-                        end_date=election.end_date
-                    ) if election else None,
+                        end_date=election.end_date,
+                        created_at=election.created_at
+                    ),
                     votes_count=vote_count
                 )
                 candidates_with_votes.append(candidate_data)
             
-            position_data = PositionWithCandidates(
+            positions_with_candidates.append(PositionWithCandidates(
                 id=position.id,
                 title=position.title,
                 description=position.description,
                 election_id=position.election_id,
                 candidates=candidates_with_votes
-            )
-            positions_with_candidates.append(position_data)
+            ))
         
-        total_votes = db.query(Vote).filter(Vote.election_id == election_id).count()
+        # 3. Total votes
+        total_votes = db.query(EncryptedVote).filter(
+            EncryptedVote.election_id == election_id
+        ).count()
         
+        # 4. Construct final response safely
         election_data = ElectionWithPositions(
             id=election.id,
             title=election.title,
             description=election.description,
-            election_type=election.election_type,
-            state=election.state,
+            election_type=safe_val(election.election_type),
+            state=safe_val(election.state),
+            status=safe_val(election.status), # Accesses @property safely
             is_active=election.is_active,
             start_date=election.start_date,
             end_date=election.end_date,
@@ -146,24 +220,20 @@ async def get_election_details(
             total_votes=total_votes
         )
         
-        return StandardResponse[ElectionWithPositions](
+        return StandardResponse(
             status=True,
             data=election_data,
-            error=None,
             message="Election details retrieved successfully"
         )
         
     except Exception as e:
-        print(f"❌ Error retrieving election details: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return StandardResponse[ElectionWithPositions](
+        print(f"❌ Error in get_election_details: {str(e)}")
+        return StandardResponse(
             status=False,
-            data=None,
             error=str(e),
             message="Error retrieving election details"
         )
-
+    
 @router.get(
     "/elections/{election_id}/positions/{position_id}/candidates",
     response_model=StandardResponse[List[CandidateElectionResponse]]
@@ -236,11 +306,14 @@ async def get_candidates_for_position(
 async def get_election_results(election_id: int, db: Session = Depends(get_db)):
     """Get detailed election results with party information (Public)"""
     try:
+        # Helper to handle Enum vs String serialization safely
+        def safe_val(attr):
+            return attr.value if hasattr(attr, 'value') else attr
+
         election = db.query(Election).filter(Election.id == election_id).first()
         if not election:
-            return StandardResponse[dict](
+            return StandardResponse(
                 status=False,
-                data=None,
                 error="Election not found",
                 message="Results retrieval failed"
             )
@@ -249,32 +322,36 @@ async def get_election_results(election_id: int, db: Session = Depends(get_db)):
             Position.election_id == election_id
         ).options(
             joinedload(Candidate.user),
-            joinedload(Candidate.party),
-            joinedload(Candidate.election)
+            joinedload(Candidate.party)
         ).all()
 
         total_votes = 0
         party_results = {}
 
+        # Pre-validate election response to reuse status property
+        election_serialized = ElectionResponse.model_validate(election)
+
         for candidate in candidates:
-            vote_count = db.query(EncryptedVote).filter(EncryptedVote.candidate_id == candidate.id).count()
+            # Count votes from secure table
+            vote_count = db.query(EncryptedVote).filter(
+                EncryptedVote.candidate_id == candidate.id
+            ).count()
             total_votes += vote_count
 
             party_id = candidate.party.id if candidate.party else 0
-            party_name = candidate.party.name if candidate.party else "Independent"
-            party_acronym = candidate.party.acronym if candidate.party else "IND"
-
+            
             if party_id not in party_results:
                 party_results[party_id] = {
-                    "party": candidate.party,
+                    "party_obj": candidate.party,
                     "total_votes": 0,
                     "candidates": [],
-                    "party_name": party_name,
-                    "party_acronym": party_acronym
+                    "fallback_name": candidate.party.name if candidate.party else "Independent",
+                    "fallback_acronym": candidate.party.acronym if candidate.party else "IND"
                 }
 
             party_results[party_id]["total_votes"] += vote_count
 
+            # Safe Candidate serialization
             candidate_data = CandidateResponse(
                 id=candidate.id,
                 user_id=candidate.user_id,
@@ -282,55 +359,52 @@ async def get_election_results(election_id: int, db: Session = Depends(get_db)):
                 position_id=candidate.position_id,
                 party_id=candidate.party_id,
                 bio=candidate.bio,
-                manifestos=candidate.manifestos,
-                election=Election(
-                    id=election.id,
-                    title=election.title,
-                    description=election.description,
-                    election_type=election.election_type.value,
-                    state=election.state.value if election.state else None,
-                    start_date=election.start_date,
-                    end_date=election.end_date
-                )
+                manifestos=candidate.manifestos or [],
+                election=election_serialized # Reuse the pre-validated response
             )
+            
             party_results[party_id]["candidates"].append({
                 "candidate": candidate_data,
                 "votes": vote_count
             })
 
-        results_data = {
-            "election": ElectionResponse.model_validate(election),
-            "total_votes": total_votes,
-            "party_results": []
-        }
-
-        for party_data in party_results.values():
-            results_data["party_results"].append({
-                "party": PoliticalPartyResponse.model_validate(party_data["party"]) if party_data["party"] else {
+        formatted_party_results = []
+        for p_id, p_data in party_results.items():
+            # Handle the Party serialization safely
+            if p_data["party_obj"]:
+                party_info = PoliticalPartyResponse.model_validate(p_data["party_obj"])
+            else:
+                party_info = {
                     "id": 0,
-                    "name": party_data["party_name"],
-                    "acronym": party_data["party_acronym"],
+                    "name": p_data["fallback_name"],
+                    "acronym": p_data["fallback_acronym"],
                     "logo_url": None,
                     "description": "Independent candidate",
                     "founded_date": None,
-                    "created_at": datetime.utcnow()
-                },
-                "total_votes": party_data["total_votes"],
-                "percentage": (party_data["total_votes"] / total_votes * 100) if total_votes > 0 else 0,
-                "candidates": party_data["candidates"]
+                    "created_at": datetime.now(timezone.utc)
+                }
+
+            formatted_party_results.append({
+                "party": party_info,
+                "total_votes": p_data["total_votes"],
+                "percentage": (p_data["total_votes"] / total_votes * 100) if total_votes > 0 else 0,
+                "candidates": p_data["candidates"]
             })
 
-        return StandardResponse[dict](
+        return StandardResponse(
             status=True,
-            data=results_data,
-            error=None,
+            data={
+                "election": election_serialized,
+                "total_votes": total_votes,
+                "party_results": formatted_party_results
+            },
             message="Election results retrieved successfully"
         )
 
     except Exception as e:
-        return StandardResponse[dict](
+        print(f"❌ Error in get_election_results: {str(e)}")
+        return StandardResponse(
             status=False,
-            data=None,
             error=str(e),
             message="Error retrieving election results"
         )
@@ -359,10 +433,79 @@ async def get_all_parties_public(db: Session = Depends(get_db)):
 
 # ==================== SECURE VOTING ENDPOINTS ====================
 
-@router.post(
-    "/elections/{election_id}/positions/{position_id}/vote-secure",
-    response_model=StandardResponse[SecureVoteResult]
-)
+# @router.post(
+#     "/elections/{election_id}/positions/{position_id}/vote-secure",
+#     response_model=StandardResponse[SecureVoteResult]
+# )
+# async def cast_secure_vote(
+#     request: Request,
+#     election_id: int,
+#     position_id: int,
+#     candidate_id: int = Form(...),
+#     current_user: User = Depends(get_current_active_user),
+#     db: Session = Depends(get_db)
+# ):
+#     """
+#     Cast a secure encrypted vote and automatically send receipt via email
+#     """
+#     try:
+#         ip_address = request.client.host if request.client else None
+
+#         # Cast the vote
+#         result = SecureVotingService.cast_encrypted_vote(
+#             db=db,
+#             user=current_user,
+#             election_id=election_id,
+#             position_id=position_id,
+#             candidate_id=candidate_id,
+#             ip_address=ip_address
+#         )
+
+#         # 🆕 Send email with vote receipt
+#         try:
+#             email_sent = email_service.send_vote_receipt_email(
+#                 user_email=current_user.email,
+#                 user_name=current_user.full_name,
+#                 vote_receipt=result["vote_receipt"],
+#                 election_name=result["election"],
+#                 position_name=result["position"],
+#                 candidate_name=result["candidate"],
+#                 timestamp=result["timestamp"]
+#             )
+            
+#             if email_sent:
+#                 result["email_sent"] = True
+#                 result["message"] = "Vote cast successfully! Receipt sent to your email."
+#             else:
+#                 result["email_sent"] = False
+#                 result["message"] = "Vote cast successfully! (Email delivery failed, but your receipt is displayed below)"
+                
+#         except Exception as email_error:
+#             print(f"⚠️ Email sending failed: {str(email_error)}")
+#             result["email_sent"] = False
+#             result["message"] = "Vote cast successfully! (Email delivery failed, but your receipt is displayed below)"
+
+#         return StandardResponse(
+#             status=True,
+#             data=SecureVoteResult.model_validate(result),
+#             message=result["message"]
+#         )
+
+#     except HTTPException as e:
+#         return StandardResponse(
+#             status=False,
+#             error=e.detail.get("error") if isinstance(e.detail, dict) else str(e.detail),
+#             message="Failed to cast vote"
+#         )
+
+#     except Exception as e:
+#         return StandardResponse(
+#             status=False,
+#             error=str(e),
+#             message="Failed to cast vote"
+#         )
+
+@router.post("/elections/{election_id}/positions/{position_id}/vote-secure", response_model=StandardResponse[SecureVoteResult])
 async def cast_secure_vote(
     request: Request,
     election_id: int,
@@ -375,9 +518,28 @@ async def cast_secure_vote(
     Cast a secure encrypted vote and automatically send receipt via email
     """
     try:
+        # 1. Fetch the election record
+        election = db.query(Election).filter(Election.id == election_id).first()
+        
+        if not election:
+            raise HTTPException(status_code=404, detail="Election not found")
+
+        # 2. Validate Election Status using your computed property
+        # Ensure it is 'ONGOING' and marked as 'is_active'
+        if election.status != ElectionStatus.ONGOING:
+            status_msg = {
+                ElectionStatus.UPCOMING: "Voting has not started yet.",
+                ElectionStatus.PAST: "This election has already ended.",
+            }.get(election.status, "Voting is currently disabled.")
+            
+            raise HTTPException(
+                status_code=400, 
+                detail={"error": "Election not active", "message": status_msg}
+            )
+
         ip_address = request.client.host if request.client else None
 
-        # Cast the vote
+        # 3. Cast the vote (Proceed only if checks pass)
         result = SecureVotingService.cast_encrypted_vote(
             db=db,
             user=current_user,
@@ -387,7 +549,7 @@ async def cast_secure_vote(
             ip_address=ip_address
         )
 
-        # 🆕 Send email with vote receipt
+        # ---- Email Logic ----
         try:
             email_sent = email_service.send_vote_receipt_email(
                 user_email=current_user.email,
@@ -399,12 +561,8 @@ async def cast_secure_vote(
                 timestamp=result["timestamp"]
             )
             
-            if email_sent:
-                result["email_sent"] = True
-                result["message"] = "Vote cast successfully! Receipt sent to your email."
-            else:
-                result["email_sent"] = False
-                result["message"] = "Vote cast successfully! (Email delivery failed, but your receipt is displayed below)"
+            result["email_sent"] = email_sent
+            result["message"] = "Vote cast successfully! Receipt sent to your email." if email_sent else "Vote cast successfully! (Email delivery failed)"
                 
         except Exception as email_error:
             print(f"⚠️ Email sending failed: {str(email_error)}")
@@ -418,19 +576,20 @@ async def cast_secure_vote(
         )
 
     except HTTPException as e:
+        # Handle the custom election status error here
         return StandardResponse(
             status=False,
             error=e.detail.get("error") if isinstance(e.detail, dict) else str(e.detail),
-            message="Failed to cast vote"
+            message=e.detail.get("message") if isinstance(e.detail, dict) else "Failed to cast vote"
         )
 
     except Exception as e:
         return StandardResponse(
             status=False,
             error=str(e),
-            message="Failed to cast vote"
+            message="An unexpected error occurred while casting your vote"
         )
-
+    
 @router.get("/vote/details-by-receipt", response_model=StandardResponse[dict])
 async def get_vote_details_by_receipt(
     vote_receipt: str = Query(..., description="Vote receipt code"),
@@ -835,31 +994,59 @@ async def get_secure_election_statistics(
             message="Failed to get statistics"
         )
 
-@router.get("/upcoming",response_model=StandardResponse[List[ElectionResponse]])
+@router.get("/upcoming", response_model=StandardResponse[List[ElectionResponse]])
 def get_upcoming_elections(db: Session = Depends(get_db)):
-    now = datetime.now(timezone.utc)
+    """Retrieve elections that haven't started yet"""
+    try:
+        now = datetime.now(timezone.utc)
 
-    elections = (
-        db.query(Election)
-        .filter(Election.start_date > now)
-        .order_by(Election.start_date.asc())
-        .all()
-    )
+        elections = (
+            db.query(Election)
+            .filter(Election.start_date > now)
+            .order_by(Election.start_date.asc())
+            .all()
+        )
 
-    elections_response = [
-        ElectionResponse.model_validate(election)
-        for election in elections
-    ]
+        # Using a list comprehension with model_validate 
+        # (Ensure your ElectionResponse has from_attributes=True)
+        elections_response = [
+            ElectionResponse.model_validate(election)
+            for election in elections
+        ]
 
-    return StandardResponse[List[ElectionResponse]](
-        status=True,
-        message="Upcoming elections retrieved successfully",
-        data=elections_response,
-        error=None
-    )
-
-@router.get("/past", response_model=StandardResponse[list[ElectionResponse]])
+        return StandardResponse(
+            status=True,
+            message=f"Retrieved {len(elections_response)} upcoming elections",
+            data=elections_response
+        )
+    except Exception as e:
+        return StandardResponse(status=False, error=str(e), message="Failed to fetch upcoming elections")
+    
+@router.get("/past", response_model=StandardResponse[List[ElectionResponse]])
 def get_past_elections(db: Session = Depends(get_db)):
+    """Retrieve completed elections"""
+    try:
+        now = datetime.now(timezone.utc)
+
+        elections = (
+            db.query(Election)
+            .filter(Election.end_date < now)
+            .order_by(Election.end_date.desc()) # Newest past elections first
+            .all()
+        )
+
+        elections_response = [
+            ElectionResponse.model_validate(election)
+            for election in elections
+        ]
+
+        return StandardResponse(
+            status=True,
+            message=f"Retrieved {len(elections_response)} past elections",
+            data=elections_response
+        )
+    except Exception as e:
+        return StandardResponse(status=False, error=str(e), message="Failed to fetch past elections")
     now = datetime.now(timezone.utc)
     elections = (
         db.query(Election)
