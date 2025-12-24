@@ -6,7 +6,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
 
-from app.models.models import User, Election, Vote
+from app.models.models import OTP, User, Election, Vote
 from app.schemas.schemas import (
     ChangePasswordRequest, Token, LoginRequest, UserCreate, UserResponse, 
     ForgotPasswordRequest, ResetPasswordRequest, OTPResponse,
@@ -64,52 +64,100 @@ async def forgot_password(
 # ============================================================
 # 🔒 RESET PASSWORD (Updated to verify OTP)
 # ============================================================
+# @router.post("/reset-password", response_model=StandardResponse[dict])
+# async def reset_password(
+#     email: str = Form(...),
+#     otp_code: str = Form(...),
+#     new_password: str = Form(...),
+#     db: Session = Depends(get_db)
+# ):
+#     try:
+#         # 1. Verify the OTP record in the DB
+#         is_valid = OTPService.verify_otp(db, email, otp_code)
+        
+#         if not is_valid:
+#             return StandardResponse(
+#                 status=False,
+#                 error="INVALID_OTP",
+#                 message="The reset code is invalid or has expired."
+#             )
+
+#         user = db.query(User).filter(User.email == email).first()
+#         if not user:
+#             return StandardResponse(
+#                 status=False, 
+#                 error="USER_NOT_FOUND", 
+#                 message="User not found"
+#             )
+
+#         # 2. Update Password
+#         user.hashed_password = get_password_hash(new_password)
+        
+#         # 3. Commit changes
+#         db.commit()
+
+#         return StandardResponse(
+#             status=True,
+#             data={"email": email},
+#             message="Password reset successfully. You can now log in with your new password."
+#         )
+
+#     except Exception as e:
+#         db.rollback()
+#         return StandardResponse(
+#             status=False,
+#             error=str(e),
+#             message="Error resetting password"
+#         )
+    
+
 @router.post("/reset-password", response_model=StandardResponse[dict])
 async def reset_password(
-    email: str = Form(...),
-    otp_code: str = Form(...),
-    new_password: str = Form(...),
+    otp_code: str = Form(..., description="The 6-digit reset code"),
+    new_password: str = Form(..., description="Your new secure password"),
     db: Session = Depends(get_db)
 ):
     try:
-        # 1. Verify the OTP record in the DB
-        is_valid = OTPService.verify_otp(db, email, otp_code)
+        # 1. Manually find the email associated with this code first
+        otp_entry = db.query(OTP).filter(
+            OTP.otp_code == otp_code,
+            OTP.is_used == False
+        ).first()
+
+        if not otp_entry:
+            return StandardResponse(
+                status=False,
+                error="INVALID_CODE",
+                message="The reset code is invalid or has already been used."
+            )
+
+        # 2. Now call your existing function with the email we just found
+        is_valid = OTPService.verify_otp(db, otp_entry.email, otp_code)
         
         if not is_valid:
             return StandardResponse(
                 status=False,
-                error="INVALID_OTP",
-                message="The reset code is invalid or has expired."
+                error="EXPIRED_CODE",
+                message="This code has expired."
             )
 
-        user = db.query(User).filter(User.email == email).first()
+        # 3. Proceed with password reset
+        user = db.query(User).filter(User.email == otp_entry.email).first()
         if not user:
-            return StandardResponse(
-                status=False, 
-                error="USER_NOT_FOUND", 
-                message="User not found"
-            )
+            return StandardResponse(status=False, error="USER_NOT_FOUND", message="User no longer exists.")
 
-        # 2. Update Password
         user.hashed_password = get_password_hash(new_password)
-        
-        # 3. Commit changes
         db.commit()
 
         return StandardResponse(
             status=True,
-            data={"email": email},
-            message="Password reset successfully. You can now log in with your new password."
+            data={"email": user.email},
+            message="Password reset successfully."
         )
 
     except Exception as e:
         db.rollback()
-        return StandardResponse(
-            status=False,
-            error=str(e),
-            message="Error resetting password"
-        )
-    
+        return StandardResponse(status=False, error="SERVER_ERROR", message=str(e))
     
 @router.get("/states", response_model=StandardResponse[dict])
 async def get_all_states():

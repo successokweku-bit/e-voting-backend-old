@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta,timezone
 from fastapi import HTTPException, status
 from app.models.models import User, OTP
 from app.core.security import verify_password, get_password_hash, verify_token
@@ -177,18 +177,27 @@ class OTPService:
     
     @staticmethod
     def verify_otp(db: Session, email: str, otp_code: str) -> bool:
-        """Verify OTP code"""
+        """Verify OTP code and check if it has expired"""
+        
+        # 1. Fetch the record matching the email and code
         otp_record = db.query(OTP).filter(
             OTP.email == email,
             OTP.otp_code == otp_code,
-            OTP.is_used == False,
-            OTP.expires_at > datetime.utcnow()
+            OTP.is_used == False
         ).first()
         
-        if otp_record:
-            # Mark OTP as used
-            otp_record.is_used = True
-            db.commit()
-            return True
+        if not otp_record:
+            return False # Code doesn't exist or was already used
+
+        # 2. Check if the current time is past the expiry time
+        # Use timezone-aware 'now' to match your model's timezone=True
+        now = datetime.now(timezone.utc) 
         
-        return False
+        if now > otp_record.expires_at:
+            # Code is expired
+            return False
+            
+        # 3. If we reached here, the code is valid. Mark it as used.
+        otp_record.is_used = True
+        db.commit()
+        return True
