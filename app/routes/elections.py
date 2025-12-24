@@ -592,39 +592,38 @@ async def cast_secure_vote(
     
 @router.post("/vote/details-by-receipt", response_model=StandardResponse[dict])
 async def get_vote_details_by_receipt(
-    vote_receipt: str = Form(..., description="Vote receipt code"), # ✅ Fix: use Form
+    vote_receipt: str = Form(..., description="Vote receipt code"),
     db: Session = Depends(get_db)
 ):
-    """
-    Get vote details using a secure receipt code via Form Data.
-    """
     try:
         def safe_val(attr):
             return attr.value if hasattr(attr, 'value') else attr
 
-        # Fetch data using the receipt from Form Data
+        # ✅ FIX: Correct full path for nested joinedload
         ev = db.query(EncryptedVote).options(
             joinedload(EncryptedVote.election),
             joinedload(EncryptedVote.position),
+            # Path: Vote -> Candidate -> User
             joinedload(EncryptedVote.candidate).joinedload(Candidate.user),
-            joinedload(Candidate.party)
-        ).filter(EncryptedVote.vote_receipt == vote_receipt).first() # Use the string directly
+            # Path: Vote -> Candidate -> Party
+            joinedload(EncryptedVote.candidate).joinedload(Candidate.party)
+        ).filter(EncryptedVote.vote_receipt == vote_receipt).first()
 
         if not ev:
+            # 404 is the appropriate code for a missing resource
             return StandardResponse(
                 status=False,
-                error="Invalid receipt code",
-                message="No vote found matching this receipt."
+                error="Invalid receipt",
+                message="No vote record matches this receipt code."
             )
 
-        # ... (rest of the logic remains the same)
+        # Build response with safe Enum handling
         vote_details = {
             "vote_receipt": ev.vote_receipt,
             "verification": {
                 "is_verified": ev.verified,
                 "is_tallied": ev.tallied,
                 "status_label": "Verified and Counted" if ev.tallied else "Pending Final Tally",
-                "vote_hash_fragment": ev.vote_hash[:16] + "..." if ev.vote_hash else None,
                 "timestamp": ev.cast_at.isoformat() if ev.cast_at else None
             },
             "election": {
@@ -636,11 +635,7 @@ async def get_vote_details_by_receipt(
             "ballot_item": {
                 "position": ev.position.title if ev.position else "Unknown",
                 "candidate": ev.candidate.user.full_name if ev.candidate and ev.candidate.user else "Unknown",
-                "party": {
-                    "name": ev.candidate.party.name,
-                    "acronym": ev.candidate.party.acronym,
-                    "logo": ev.candidate.party.logo_url
-                } if ev.candidate and ev.candidate.party else None
+                "party": ev.candidate.party.acronym if ev.candidate and ev.candidate.party else "IND"
             }
         }
 
@@ -651,8 +646,13 @@ async def get_vote_details_by_receipt(
         )
 
     except Exception as e:
-        return StandardResponse(status=False, error=str(e), message="Verification error")  
-
+        # Use 500 for actual code/server crashes
+        print(f"❌ Server Error: {str(e)}")
+        return StandardResponse(
+            status=False,
+            error="Internal Server Error",
+            message="An unexpected database mapping error occurred."
+        )
 @router.get("/my-votes", response_model=StandardResponse[dict])
 async def get_my_votes(
     current_user: User = Depends(get_current_active_user),
