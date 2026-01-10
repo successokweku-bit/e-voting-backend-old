@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from sqlalchemy import func
+from datetime import datetime, timezone
 
 from app.models.database import get_db
 from app.models.models import User, UserRole, PoliticalParty, Candidate, Election, Position, ElectionType, State, EncryptedVote, VoteVerification
