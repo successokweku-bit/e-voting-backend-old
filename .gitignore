@@ -1,1 +1,10 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
 .env
+venv/
+uploads/*
+!uploads/.gitkeep
+*.log
+.DS_Store
