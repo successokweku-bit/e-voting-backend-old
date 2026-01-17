@@ -62,7 +62,7 @@ class AuthService:
         
         if existing_user:
             if existing_user.email == user_data.email:
-                print(f"❌ Email already registered: {user_data.email}")
+                print(f"Email already registered: {user_data.email}")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail={
@@ -73,7 +73,7 @@ class AuthService:
                     }
                 )
             else:
-                print(f"❌ NIN already registered: {user_data.nin}")
+                print(f"NIN already registered: {user_data.nin}")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail={
@@ -99,7 +99,7 @@ class AuthService:
         db.commit()
         db.refresh(user)
         
-        print(f"✅ User created successfully: {user.email} (ID: {user.id}, Role: {user.role.value})")
+        print(f"User created successfully: {user.email} (ID: {user.id}, Role: {user.role.value})")
         return user
    
     @staticmethod

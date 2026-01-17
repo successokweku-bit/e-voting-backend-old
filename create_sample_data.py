@@ -92,7 +92,7 @@ def create_sample_data():
         # Get political parties
         parties = db.query(PoliticalParty).all()
         if not parties:
-            logger.error("❌ No political parties found. Please run create_political_parties.py first!")
+            logger.error("No political parties found. Please run create_political_parties.py first!")
             return
         
         # Create Federal Positions (President, Vice President)
@@ -162,14 +162,14 @@ def create_sample_data():
             db.add(candidate)
         db.commit()
         
-        print("✅ Sample data created successfully!")
+        print("Sample data created successfully!")
         print(f"   - Federal Election: {federal_election.title}")
         print(f"   - State Election: {lagos_election.title}")
         print(f"   - Total Positions: 2")
         print(f"   - Total Candidates: 4")
         
     except Exception as e:
-        print(f"❌ Error creating sample data: {e}")
+        print(f"Error creating sample data: {e}")
         db.rollback()
         import traceback
         traceback.print_exc()

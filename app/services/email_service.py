@@ -64,11 +64,11 @@ class EmailService:
                     server.login(self.smtp_username, self.smtp_password)
                 server.send_message(message)
             
-            print(f"✅ Email sent successfully to {to_email}")
+            print(f"Email sent successfully to {to_email}")
             return True
             
         except Exception as e:
-            print(f"❌ Error sending email: {str(e)}")
+            print(f"Error sending email: {str(e)}")
             return False
     
     def send_vote_receipt_email(
@@ -188,7 +188,7 @@ class EmailService:
         </head>
         <body>
             <div class="header">
-                <h1>🗳️ Vote Confirmation</h1>
+                <h1> Vote Confirmation</h1>
                 <p>Your vote has been securely recorded</p>
             </div>
             
@@ -196,7 +196,7 @@ class EmailService:
                 <p>Dear <strong>{user_name}</strong>,</p>
                 
                 <div class="success">
-                    <strong>✅ Success!</strong> Your vote has been encrypted and securely stored in our system.
+                    <strong>Success!</strong> Your vote has been encrypted and securely stored in our system.
                 </div>
                 
                 <div class="receipt-box">
@@ -232,7 +232,7 @@ class EmailService:
                 </div>
                 
                 <div class="warning">
-                    <strong>⚠️ Important:</strong>
+                    <strong> Important:</strong>
                     <ul style="margin: 10px 0; padding-left: 20px;">
                         <li>Keep this receipt code safe and confidential</li>
                         <li>You can use it to verify your vote was counted</li>

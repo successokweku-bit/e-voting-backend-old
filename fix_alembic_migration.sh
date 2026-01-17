@@ -7,12 +7,12 @@ echo "======================================================"
 echo ""
 
 # Step 1: Check current migration status
-echo "📊 Step 1: Checking current migration status..."
+echo "Step 1: Checking current migration status..."
 alembic current
 echo ""
 
 # Step 2: Mark the failed migration as complete (if it partially ran)
-echo "⚠️  Step 2: The migration failed because 'audit_logs' already exists."
+echo "Step 2: The migration failed because 'audit_logs' already exists."
 echo "This means some tables were created but not all."
 echo ""
 echo "We have 3 options:"
@@ -27,7 +27,7 @@ read -p "Enter your choice (1/2/3): " choice
 case $choice in
   1)
     echo ""
-    echo "📝 Option 1: Marking migration as complete..."
+    echo "Option 1: Marking migration as complete..."
     echo ""
     echo "Run this SQL in your database:"
     echo "--------------------------------------------"
@@ -41,7 +41,7 @@ case $choice in
     
   2)
     echo ""
-    echo "🔄 Option 2: Creating fixed migration..."
+    echo "Option 2: Creating fixed migration..."
     echo ""
     
     # Rollback the failed migration
@@ -56,7 +56,7 @@ case $choice in
         read -p "Delete this file? (y/n): " confirm
         if [ "$confirm" == "y" ]; then
             rm "$MIGRATION_FILE"
-            echo "✅ Deleted"
+            echo "Deleted"
         fi
     fi
     
@@ -73,7 +73,7 @@ case $choice in
     echo ""
     alembic downgrade -1
     echo ""
-    echo "✅ Rolled back. Now you can run 'alembic upgrade head' again"
+    echo "Rolled back. Now you can run 'alembic upgrade head' again"
     ;;
     
   *)

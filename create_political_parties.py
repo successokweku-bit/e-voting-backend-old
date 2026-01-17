@@ -6,6 +6,7 @@ Script to create political parties for the e-voting system
 import sys
 import os
 
+
 # Add the current directory to the Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -23,7 +24,7 @@ def create_political_parties():
         # Check if parties already exist
         existing_parties = db.query(PoliticalParty).count()
         if existing_parties > 0:
-            logger.info("✅ Political parties already exist!")
+            logger.info("Political parties already exist!")
             return
         
         # Define major political parties in Nigeria
@@ -91,7 +92,7 @@ def create_political_parties():
         
         # Commit to database
         db.commit()
-        logger.info(f"✅ Created {len(political_parties)} political parties successfully!")
+        logger.info(f" Created {len(political_parties)} political parties successfully!")
         
         # Display created parties
         parties = db.query(PoliticalParty).all()
@@ -99,7 +100,7 @@ def create_political_parties():
             logger.info(f"   - {party.abbreviation}: {party.name}")
             
     except Exception as e:
-        logger.error(f"❌ Error creating political parties: {e}")
+        logger.error(f" Error creating political parties: {e}")
         db.rollback()
     finally:
         db.close()

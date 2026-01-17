@@ -9,7 +9,7 @@ def generate_voting_keys():
     """Generate all required encryption keys for the voting system"""
     
     print("=" * 70)
-    print("🔐 E-VOTING SYSTEM - ENCRYPTION KEY GENERATOR")
+    print("E-VOTING SYSTEM - ENCRYPTION KEY GENERATOR")
     print("=" * 70)
     print()
     
@@ -22,10 +22,10 @@ def generate_voting_keys():
     # Generate additional random secret for commitments
     commitment_secret = secrets.token_hex(32)
     
-    print("✅ Keys generated successfully!")
+    print("Keys generated successfully!")
     print()
     print("=" * 70)
-    print("📝 ADD THESE TO YOUR .env FILE:")
+    print("ADD THESE TO YOUR .env FILE:")
     print("=" * 70)
     print()
     print(f"VOTE_ENCRYPTION_KEY={encryption_key}")
@@ -34,19 +34,19 @@ def generate_voting_keys():
     print()
     print("=" * 70)
     print()
-    print("⚠️  IMPORTANT SECURITY NOTES:")
+    print("IMPORTANT SECURITY NOTES:")
     print("=" * 70)
     print()
-    print("1. ⛔ NEVER commit these keys to version control (git)")
-    print("2. 🔒 Store them securely (use environment variables)")
-    print("3. 💾 Back up these keys in a secure location")
-    print("4. 🚫 If keys are lost, old votes CANNOT be decrypted")
-    print("5. 🔄 Use different keys for development and production")
-    print("6. 👥 Limit access to these keys (super admin only)")
+    print("1. NEVER commit these keys to version control (git)")
+    print("2. Store them securely (use environment variables)")
+    print("3. Back up these keys in a secure location")
+    print("4. If keys are lost, old votes CANNOT be decrypted")
+    print("5. Use different keys for development and production")
+    print("6. Limit access to these keys (super admin only)")
     print()
     print("=" * 70)
     print()
-    print("📋 Next Steps:")
+    print("Next Steps:")
     print("=" * 70)
     print()
     print("1. Copy the keys above")
@@ -83,10 +83,10 @@ DEBUG=True
     try:
         with open('.env.example', 'w') as f:
             f.write(env_content)
-        print("✅ Created .env.example file (copy to .env and update as needed)")
+        print("Created .env.example file (copy to .env and update as needed)")
         print()
     except Exception as e:
-        print(f"⚠️  Could not create .env.example: {e}")
+        print(f"Could not create .env.example: {e}")
         print()
     
     return {
@@ -112,9 +112,9 @@ def test_encryption(keys):
         decrypted = cipher.decrypt(encrypted)
         
         if decrypted == test_data:
-            print("✅ Encryption/Decryption: PASSED")
+            print("Encryption/Decryption: PASSED")
         else:
-            print("❌ Encryption/Decryption: FAILED")
+            print("Encryption/Decryption: FAILED")
             return False
         
         # Test HMAC
@@ -129,20 +129,20 @@ def test_encryption(keys):
         ).hexdigest()
         
         if len(hmac_result) == 64:  # SHA-256 produces 64 hex characters
-            print("✅ HMAC Anonymization: PASSED")
+            print("HMAC Anonymization: PASSED")
         else:
-            print("❌ HMAC Anonymization: FAILED")
+            print("HMAC Anonymization: FAILED")
             return False
         
         print()
         print("=" * 70)
-        print("✅ All encryption tests PASSED!")
+        print("All encryption tests PASSED!")
         print("=" * 70)
         print()
         return True
         
     except Exception as e:
-        print(f"❌ Encryption test FAILED: {e}")
+        print(f"Encryption test FAILED: {e}")
         print()
         return False
 

@@ -21,11 +21,11 @@ from app.core.file_upload import FileUploadService
 router = APIRouter()
 
 # ============================================================
-# 🔑 FORGOT PASSWORD (Updated to send Email)
+# FORGOT PASSWORD (Updated to send Email)
 # ============================================================
 @router.post("/forgot-password", response_model=StandardResponse[OTPResponse])
 async def forgot_password(
-    email: str = Form(..., description="The registered email address"), # ✅ Now accepting Form Data
+    email: str = Form(..., description="The registered email address"), # Now accepting Form Data
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db)
 ):
@@ -62,54 +62,8 @@ async def forgot_password(
         )
     
 # ============================================================
-# 🔒 RESET PASSWORD (Updated to verify OTP)
+# RESET PASSWORD (Updated to verify OTP)
 # ============================================================
-# @router.post("/reset-password", response_model=StandardResponse[dict])
-# async def reset_password(
-#     email: str = Form(...),
-#     otp_code: str = Form(...),
-#     new_password: str = Form(...),
-#     db: Session = Depends(get_db)
-# ):
-#     try:
-#         # 1. Verify the OTP record in the DB
-#         is_valid = OTPService.verify_otp(db, email, otp_code)
-        
-#         if not is_valid:
-#             return StandardResponse(
-#                 status=False,
-#                 error="INVALID_OTP",
-#                 message="The reset code is invalid or has expired."
-#             )
-
-#         user = db.query(User).filter(User.email == email).first()
-#         if not user:
-#             return StandardResponse(
-#                 status=False, 
-#                 error="USER_NOT_FOUND", 
-#                 message="User not found"
-#             )
-
-#         # 2. Update Password
-#         user.hashed_password = get_password_hash(new_password)
-        
-#         # 3. Commit changes
-#         db.commit()
-
-#         return StandardResponse(
-#             status=True,
-#             data={"email": email},
-#             message="Password reset successfully. You can now log in with your new password."
-#         )
-
-#     except Exception as e:
-#         db.rollback()
-#         return StandardResponse(
-#             status=False,
-#             error=str(e),
-#             message="Error resetting password"
-#         )
-    
 
 @router.post("/reset-password", response_model=StandardResponse[dict])
 async def reset_password(

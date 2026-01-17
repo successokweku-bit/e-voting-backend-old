@@ -227,7 +227,7 @@ async def get_election_details(
         )
         
     except Exception as e:
-        print(f"❌ Error in get_election_details: {str(e)}")
+        print(f" Error in get_election_details: {str(e)}")
         return StandardResponse(
             status=False,
             error=str(e),
@@ -402,7 +402,7 @@ async def get_election_results(election_id: int, db: Session = Depends(get_db)):
         )
 
     except Exception as e:
-        print(f"❌ Error in get_election_results: {str(e)}")
+        print(f" Error in get_election_results: {str(e)}")
         return StandardResponse(
             status=False,
             error=str(e),
@@ -643,7 +643,7 @@ async def get_vote_details_by_receipt(
         )
 
     except Exception as e:
-        print(f"❌ Mapper Error: {str(e)}")
+        print(f" Mapper Error: {str(e)}")
         return StandardResponse(
             status=False,
             error="SERVER_ERROR",
@@ -731,7 +731,7 @@ async def get_my_votes(
         )
 
     except Exception as e:
-        print(f"❌ Error in get_my_votes: {str(e)}")
+        print(f" Error in get_my_votes: {str(e)}")
         return StandardResponse(
             status=False,
             error=str(e),
