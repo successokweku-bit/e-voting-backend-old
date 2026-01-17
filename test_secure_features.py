@@ -17,27 +17,27 @@ print("ANONYMIZATION_SALT:", os.getenv('ANONYMIZATION_SALT'))
 
 def test_imports():
     """Test if all required modules can be imported"""
-    print("🧪 Test 1: Checking imports...")
+    print("Test 1: Checking imports...")
     
     try:
         from app.core.encryption import crypto_service, encrypt_vote
-        print("   ✅ encryption.py imported successfully")
+        print("encryption.py imported successfully")
     except ImportError as e:
-        print(f"   ❌ Failed to import encryption.py: {e}")
+        print(f"Failed to import encryption.py: {e}")
         return False
     
     try:
         from app.services.secure_voting_service import SecureVotingService
-        print("   ✅ secure_voting_service.py imported successfully")
+        print(" secure_voting_service.py imported successfully")
     except ImportError as e:
-        print(f"   ❌ Failed to import secure_voting_service.py: {e}")
+        print(f" Failed to import secure_voting_service.py: {e}")
         return False
     
     try:
         from app.models.models import EncryptedVote, AuditLog, VoteCommitment
-        print("   ✅ New models imported successfully")
+        print(" New models imported successfully")
     except ImportError as e:
-        print(f"   ❌ Failed to import new models: {e}")
+        print(f" Failed to import new models: {e}")
         return False
     
     return True
@@ -51,24 +51,24 @@ def test_encryption_keys():
     anon_salt = os.getenv('ANONYMIZATION_SALT')
     
     if not vote_key:
-        print("   ❌ VOTE_ENCRYPTION_KEY not set in environment")
-        print("   Run: python generate_keys.py")
+        print(" VOTE_ENCRYPTION_KEY not set in environment")
+        print(" Run: python generate_keys.py")
         return False
     
     if not anon_salt:
-        print("   ❌ ANONYMIZATION_SALT not set in environment")
+        print(" ANONYMIZATION_SALT not set in environment")
         print("   Run: python generate_keys.py")
         return False
     
-    print(f"   ✅ VOTE_ENCRYPTION_KEY is set ({len(vote_key)} chars)")
-    print(f"   ✅ ANONYMIZATION_SALT is set ({len(anon_salt)} chars)")
+    print(f" VOTE_ENCRYPTION_KEY is set ({len(vote_key)} chars)")
+    print(f" ANONYMIZATION_SALT is set ({len(anon_salt)} chars)")
     
     return True
 
 
 def test_encryption_functionality():
     """Test basic encryption/decryption"""
-    print("\n🔐 Test 3: Testing encryption functionality...")
+    print("\n Test 3: Testing encryption functionality...")
     
     try:
         from app.core.encryption import crypto_service
@@ -83,34 +83,34 @@ def test_encryption_functionality():
         
         # Encrypt
         encrypted = crypto_service.encrypt_vote_data(test_data)
-        print(f"   ✅ Data encrypted successfully")
+        print(f" Data encrypted successfully")
         
         # Verify it's actually encrypted
         if "user_id" in encrypted or "123" in encrypted:
-            print("   ❌ Data appears to be in plaintext!")
+            print("  Data appears to be in plaintext!")
             return False
         
         # Decrypt
         decrypted = crypto_service.decrypt_vote_data(encrypted)
-        print(f"   ✅ Data decrypted successfully")
+        print(f"  Data decrypted successfully")
         
         # Verify
         if decrypted == test_data:
-            print("   ✅ Encryption/Decryption verified")
+            print(" Encryption/Decryption verified")
         else:
-            print("   ❌ Decrypted data doesn't match original")
+            print(" Decrypted data doesn't match original")
             return False
         
         return True
         
     except Exception as e:
-        print(f"   ❌ Encryption test failed: {e}")
+        print(f" Encryption test failed: {e}")
         return False
 
 
 def test_anonymization():
     """Test voter anonymization"""
-    print("\n🎭 Test 4: Testing voter anonymization...")
+    print("\n Test 4: Testing voter anonymization...")
     
     try:
         from app.core.encryption import crypto_service
@@ -125,36 +125,36 @@ def test_anonymization():
         
         # Should be deterministic
         if anon_id_1 != anon_id_2:
-            print("   ❌ Anonymous IDs are not deterministic")
+            print(" Anonymous IDs are not deterministic")
             return False
         
-        print(f"   ✅ Anonymous ID generated: {anon_id_1[:16]}...")
+        print(f" Anonymous ID generated: {anon_id_1[:16]}...")
         
         # Should not contain user ID
         if str(user_id) in anon_id_1:
-            print("   ❌ User ID appears in anonymous ID")
+            print(" User ID appears in anonymous ID")
             return False
         
-        print("   ✅ Anonymous ID does not contain user ID")
+        print(" Anonymous ID does not contain user ID")
         
         # Different inputs should give different outputs
         anon_id_3 = crypto_service.generate_anonymous_voter_id(user_id, election_id, position_id + 1)
         if anon_id_1 == anon_id_3:
-            print("   ❌ Different inputs produce same anonymous ID")
+            print(" Different inputs produce same anonymous ID")
             return False
         
-        print("   ✅ Different inputs produce different IDs")
+        print(" Different inputs produce different IDs")
         
         return True
         
     except Exception as e:
-        print(f"   ❌ Anonymization test failed: {e}")
+        print(f" Anonymization test failed: {e}")
         return False
 
 
 def test_vote_hashing():
     """Test vote integrity hashing"""
-    print("\n#️⃣ Test 5: Testing vote integrity hashing...")
+    print("\n#️ Test 5: Testing vote integrity hashing...")
     
     try:
         from app.core.encryption import crypto_service
@@ -168,13 +168,13 @@ def test_vote_hashing():
         
         # Generate hash
         hash1 = crypto_service.generate_vote_hash(vote_data)
-        print(f"   ✅ Vote hash generated: {hash1[:16]}...")
+        print(f"  Vote hash generated: {hash1[:16]}...")
         
         # Verify integrity
         if crypto_service.verify_vote_integrity(vote_data, hash1):
-            print("   ✅ Vote integrity verified")
+            print(" Vote integrity verified")
         else:
-            print("   ❌ Vote integrity verification failed")
+            print(" Vote integrity verification failed")
             return False
         
         # Test tampering detection
@@ -182,15 +182,15 @@ def test_vote_hashing():
         tampered_data["candidate_id"] = 999
         
         if crypto_service.verify_vote_integrity(tampered_data, hash1):
-            print("   ❌ Failed to detect tampering")
+            print(" Failed to detect tampering")
             return False
         
-        print("   ✅ Tampering detected successfully")
+        print(" Tampering detected successfully")
         
         return True
         
     except Exception as e:
-        print(f"   ❌ Hashing test failed: {e}")
+        print(f" Hashing test failed: {e}")
         return False
 
 
@@ -210,26 +210,26 @@ def test_receipt_generation():
         
         # Verify format
         if not receipt.startswith("VR-"):
-            print(f"   ❌ Invalid receipt format: {receipt}")
+            print(f" Invalid receipt format: {receipt}")
             return False
         
         # Verify length (VR- + 16 hex chars = 19)
         if len(receipt) != 19:
-            print(f"   ❌ Invalid receipt length: {len(receipt)}")
+            print(f" Invalid receipt length: {len(receipt)}")
             return False
         
-        print(f"   ✅ Receipt generated: {receipt}")
+        print(f" Receipt generated: {receipt}")
         
         return True
         
     except Exception as e:
-        print(f"   ❌ Receipt generation failed: {e}")
+        print(f" Receipt generation failed: {e}")
         return False
 
 
 def test_complete_vote_encryption():
     """Test complete vote encryption process"""
-    print("\n🗳️  Test 7: Testing complete vote encryption...")
+    print("\n  Test 7: Testing complete vote encryption...")
     
     try:
         from app.core.encryption import encrypt_vote
@@ -254,10 +254,10 @@ def test_complete_vote_encryption():
         
         for key in required_keys:
             if key not in result:
-                print(f"   ❌ Missing key: {key}")
+                print(f"  Missing key: {key}")
                 return False
         
-        print("   ✅ All components generated:")
+        print("  All components generated:")
         print(f"      - Anonymous ID: {result['anonymous_voter_id'][:16]}...")
         print(f"      - Receipt: {result['vote_receipt']}")
         print(f"      - Hash: {result['vote_hash'][:16]}...")
@@ -265,13 +265,13 @@ def test_complete_vote_encryption():
         return True
         
     except Exception as e:
-        print(f"   ❌ Complete encryption failed: {e}")
+        print(f" Complete encryption failed: {e}")
         return False
 
 
 def test_database_tables():
     """Test if database tables exist"""
-    print("\n🗄️  Test 8: Checking database tables...")
+    print("\n Test 8: Checking database tables...")
     
     try:
         from app.models.database import engine
@@ -292,9 +292,9 @@ def test_database_tables():
         missing_tables = []
         for table in required_tables:
             if table in tables:
-                print(f"   ✅ Table exists: {table}")
+                print(f" Table exists: {table}")
             else:
-                print(f"   ❌ Table missing: {table}")
+                print(f" Table missing: {table}")
                 missing_tables.append(table)
         
         if missing_tables:
@@ -306,15 +306,15 @@ def test_database_tables():
         return True
         
     except Exception as e:
-        print(f"   ❌ Database check failed: {e}")
-        print("   Make sure your database is configured correctly")
+        print(f"  Database check failed: {e}")
+        print(" Make sure your database is configured correctly")
         return False
 
 
 def main():
     """Run all tests"""
     print("=" * 70)
-    print("🧪 SECURE VOTING FEATURES - TEST SUITE")
+    print("SECURE VOTING FEATURES - TEST SUITE")
     print("=" * 70)
     print()
     
@@ -336,19 +336,19 @@ def main():
             result = test_func()
             results.append((test_name, result))
         except Exception as e:
-            print(f"\n❌ Test '{test_name}' crashed: {e}")
+            print(f"\n Test '{test_name}' crashed: {e}")
             results.append((test_name, False))
     
     # Summary
     print("\n" + "=" * 70)
-    print("📊 TEST SUMMARY")
+    print("TEST SUMMARY")
     print("=" * 70)
     
     passed = sum(1 for _, result in results if result)
     total = len(results)
     
     for test_name, result in results:
-        status = "✅ PASS" if result else "❌ FAIL"
+        status = "PASS" if result else "FAIL"
         print(f"{status} | {test_name}")
     
     print()
@@ -356,14 +356,14 @@ def main():
     print()
     
     if passed == total:
-        print("🎉 ALL TESTS PASSED! Your secure voting system is ready.")
+        print(" ALL TESTS PASSED! Your secure voting system is ready.")
         print()
         print("Next steps:")
         print("1. Start your server: uvicorn app.main:app --reload")
         print("2. Test the API endpoints")
         print("3. Update your frontend to use the new endpoints")
     else:
-        print("⚠️  SOME TESTS FAILED. Please review the errors above.")
+        print("  SOME TESTS FAILED. Please review the errors above.")
         print()
         print("Common issues:")
         print("1. Missing encryption keys → Run generate_keys.py")

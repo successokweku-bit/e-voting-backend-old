@@ -19,7 +19,6 @@ from app.core.file_upload import FileUploadService
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 
-# Dependency to get current user
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
@@ -33,9 +32,6 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
     return current_user
 
 
-# ============================================================
-# 🔐 LOGIN - FIXED VERSION
-# ============================================================
 @router.post("/token", response_model=StandardResponse[Token])
 async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -58,7 +54,6 @@ async def login_for_access_token(
             data={"sub": user.email}, expires_delta=access_token_expires
         )
 
-        # Convert SQLAlchemy model → Pydantic
         user_response = UserResponse.model_validate(user)
 
         token_data = Token(
@@ -91,9 +86,6 @@ async def login_for_access_token(
         )
 
 
-# ============================================================
-# 🧾 REGISTER USER
-# ============================================================
 @router.post("/register", response_model=StandardResponse[UserResponse])
 async def register_user(
     user_data: UserCreate,
@@ -102,7 +94,6 @@ async def register_user(
 ):
     try:
         user = AuthService.create_user(db, user_data)
-
         user_response = UserResponse.model_validate(user)
 
         return StandardResponse[UserResponse](
@@ -129,105 +120,94 @@ async def register_user(
         )
 
 
-# # ============================================================
-# # 🔑 FORGOT PASSWORD
-# # ============================================================
-# @router.post("/forgot-password", response_model=StandardResponse[OTPResponse])
-# async def forgot_password(
-#     request: ForgotPasswordRequest,
-#     background_tasks: BackgroundTasks,
-#     db: Session = Depends(get_db)
-# ):
-#     try:
-#         user = db.query(User).filter(User.email == request.email).first()
+@router.post("/forgot-password", response_model=StandardResponse[OTPResponse])
+async def forgot_password(
+    request: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    try:
+        user = db.query(User).filter(User.email == request.email).first()
 
-#         otp_response = OTPResponse(
-#             message="If the email exists, a reset code has been sent",
-#             email=request.email
-#         )
+        otp_response = OTPResponse(
+            message="If the email exists, a reset code has been sent",
+            email=request.email
+        )
 
-#         if user:
-#             otp_code = OTPService.create_otp_record(db, request.email)
-#             print(f"OTP for {request.email}: {otp_code}")
+        if user:
+            otp_code = OTPService.create_otp_record(db, request.email)
+            print(f"OTP for {request.email}: {otp_code}")
 
-#         return StandardResponse[OTPResponse](
-#             status=True,
-#             data=otp_response,
-#             error=None,
-#             message="Reset code sent successfully"
-#         )
+        return StandardResponse[OTPResponse](
+            status=True,
+            data=otp_response,
+            error=None,
+            message="Reset code sent successfully"
+        )
 
-#     except Exception as e:
-#         return StandardResponse[OTPResponse](
-#             status=False,
-#             data=None,
-#             error=str(e),
-#             message="Error sending reset code"
-#         )
+    except Exception as e:
+        return StandardResponse[OTPResponse](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error sending reset code"
+        )
 
 
-# # ============================================================
-# # 🔒 RESET PASSWORD
-# # ============================================================
-# @router.post("/reset-password", response_model=StandardResponse[dict])
-# async def reset_password(
-#     request: ResetPasswordRequest,
-#     db: Session = Depends(get_db)
-# ):
-#     try:
-#         payload = verify_token(request.token)
-#         if not payload:
-#             return StandardResponse[dict](
-#                 status=False,
-#                 data=None,
-#                 error="Invalid or expired reset token",
-#                 message="Password reset failed"
-#             )
+@router.post("/reset-password", response_model=StandardResponse[dict])
+async def reset_password(
+    request: ResetPasswordRequest,
+    db: Session = Depends(get_db)
+):
+    try:
+        payload = verify_token(request.token)
+        if not payload:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Invalid or expired reset token",
+                message="Password reset failed"
+            )
 
-#         email = payload.get("sub")
-#         if not email:
-#             return StandardResponse[dict](
-#                 status=False,
-#                 data=None,
-#                 error="Invalid reset token",
-#                 message="Password reset failed"
-#             )
+        email = payload.get("sub")
+        if not email:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="Invalid reset token",
+                message="Password reset failed"
+            )
 
-#         user = db.query(User).filter(User.email == email).first()
-#         if not user:
-#             return StandardResponse[dict](
-#                 status=False,
-#                 data=None,
-#                 error="User not found",
-#                 message="Password reset failed"
-#             )
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            return StandardResponse[dict](
+                status=False,
+                data=None,
+                error="User not found",
+                message="Password reset failed"
+            )
 
-#         from app.core.security import get_password_hash
-#         user.hashed_password = get_password_hash(request.new_password)
-#         db.commit()
+        from app.core.security import get_password_hash
+        user.hashed_password = get_password_hash(request.new_password)
+        db.commit()
 
-#         return StandardResponse[dict](
-#             status=True,
-#             data={"email": email},
-#             error=None,
-#             message="Password reset successfully"
-#         )
+        return StandardResponse[dict](
+            status=True,
+            data={"email": email},
+            error=None,
+            message="Password reset successfully"
+        )
 
-#     except Exception as e:
-#         db.rollback()
-#         return StandardResponse[dict](
-#             status=False,
-#             data=None,
-#             error=str(e),
-#             message="Error resetting password"
-#         )
+    except Exception as e:
+        db.rollback()
+        return StandardResponse[dict](
+            status=False,
+            data=None,
+            error=str(e),
+            message="Error resetting password"
+        )
 
 
-
-
-# ============================================================
-# 👤 GET CURRENT USER
-# ============================================================
 @router.get("/me", response_model=StandardResponse[UserResponse])
 async def read_users_me(current_user: User = Depends(get_current_active_user)):
     try:
@@ -249,9 +229,6 @@ async def read_users_me(current_user: User = Depends(get_current_active_user)):
         )
 
 
-# ============================================================
-# 🚪 LOGOUT
-# ============================================================
 @router.post("/logout", response_model=StandardResponse[dict])
 async def logout():
     return StandardResponse[dict](
@@ -262,9 +239,6 @@ async def logout():
     )
 
 
-# ============================================================
-# 🧪 DEBUG
-# ============================================================
 @router.post("/debug-test", response_model=StandardResponse[dict])
 async def debug_test():
     return StandardResponse[dict](
@@ -275,9 +249,6 @@ async def debug_test():
     )
 
 
-# ============================================================
-# 👥 PAGINATED USERS
-# ============================================================
 @router.get("/users/paginated", response_model=StandardResponse[dict])
 async def get_users_paginated(
     skip: int = Query(0, ge=0),
@@ -315,9 +286,6 @@ async def get_users_paginated(
         )
 
 
-# ============================================================
-# 🖼️ UPDATE PROFILE IMAGE
-# ============================================================
 @router.put("/me/profile-image", response_model=StandardResponse[UserResponse])
 async def update_my_profile_image(
     profile_image: UploadFile = File(...),
@@ -355,9 +323,6 @@ async def update_my_profile_image(
         )
 
 
-# ============================================================
-# 🗳️ VOTER PROFILE
-# ============================================================
 @router.get("/me/voter-profile", response_model=StandardResponse[dict])
 async def get_my_voter_profile(
     current_user: User = Depends(get_current_active_user),
@@ -403,6 +368,7 @@ async def get_my_voter_profile(
             message="Error retrieving voter profile"
         )
 
+
 @router.post("/change-password", response_model=StandardResponse[dict])
 async def change_password(
     old_password: str = Form(..., min_length=8),
@@ -411,11 +377,7 @@ async def change_password(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """
-    Change password for the authenticated user using Form Data
-    """
     try:
-        # 1. Verify new password matches confirmation
         if new_password != confirm_password:
             return StandardResponse(
                 status=False,
@@ -423,7 +385,6 @@ async def change_password(
                 message="New password and confirmation do not match."
             )
 
-        # 2. Verify that the old password provided matches the database
         if not verify_password(old_password, current_user.hashed_password):
             return StandardResponse(
                 status=False,
@@ -431,7 +392,6 @@ async def change_password(
                 message="The old password you entered is incorrect."
             )
 
-        # 3. Prevent using the same password again
         if old_password == new_password:
             return StandardResponse(
                 status=False,
@@ -439,7 +399,6 @@ async def change_password(
                 message="New password cannot be the same as the old password."
             )
 
-        # 4. Hash the new password and update the user record
         current_user.hashed_password = get_password_hash(new_password)
         
         db.add(current_user)
@@ -459,53 +418,3 @@ async def change_password(
             error="SERVER_ERROR",
             message=f"An error occurred: {str(e)}"
         )
-
-# @router.post("/change-password", response_model=StandardResponse[dict])
-# async def change_password(
-    # data: ChangePasswordRequest,
-    # current_user: User = Depends(get_current_active_user),
-    # db: Session = Depends(get_db)
-# ):
-#     """
-#     Change password for the authenticated user
-#     """
-#     try:
-#         # 1. Verify that the old password provided matches the database
-#         if not verify_password(data.old_password, current_user.hashed_password):
-#             return StandardResponse(
-#                 status=False,
-#                 error="INVALID_PASSWORD",
-#                 message="The old password you entered is incorrect."
-#             )
-
-#         # 2. Prevent using the same password again (Optional but recommended)
-#         if data.old_password == data.new_password:
-#             return StandardResponse(
-#                 status=False,
-#                 error="SAME_PASSWORD",
-#                 message="New password cannot be the same as the old password."
-#             )
-
-#         # 3. Hash the new password and update the user record
-#         current_user.hashed_password = get_password_hash(data.new_password)
-        
-#         db.add(current_user)
-#         db.commit()
-#         db.refresh(current_user)
-
-#         # 4. (Optional) Audit log for security
-#         # create_audit_log(db, user_id=current_user.id, action="PASSWORD_CHANGE")
-
-#         return StandardResponse(
-#             status=True,
-#             data={"user_id": current_user.id},
-#             message="Password updated successfully. Please log in again with your new credentials."
-#         )
-
-#     except Exception as e:
-#         db.rollback()
-#         return StandardResponse(
-#             status=False,
-#             error="SERVER_ERROR",
-#             message=f"An error occurred: {str(e)}"
-#         )

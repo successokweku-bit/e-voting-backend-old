@@ -8,7 +8,7 @@ def create_super_admin():
         # Check if super admin already exists
         existing_admin = db.query(User).filter(User.role == UserRole.SUPER_ADMIN).first()
         if existing_admin:
-            print("✅ Super admin already exists!")
+            print("Super admin already exists!")
             return
         
         # Create super admin
@@ -24,12 +24,12 @@ def create_super_admin():
         
         db.add(super_admin)
         db.commit()
-        print("✅ Super admin created successfully!")
+        print("Super admin created successfully!")
         print("Email: admin@evoting.com")
         print("Password: Admin123!")
         
     except Exception as e:
-        print(f"❌ Error creating super admin: {e}")
+        print(f"Error creating super admin: {e}")
         db.rollback()
     finally:
         db.close()

@@ -10,14 +10,6 @@ T = TypeVar("T")
 # -------------------------
 # STANDARD RESPONSE
 # -------------------------
-# class StandardResponse(BaseModel, Generic[T]):
-#     status: bool
-#     data: Optional[T] = None
-#     error: Optional[Any] = None
-#     message: Optional[str] = None
-
-#     model_config = ConfigDict(from_attributes=True)
-
 
 class StandardResponse(BaseModel, Generic[T]):
     status: bool
@@ -494,8 +486,3 @@ class ChangePasswordRequest(BaseModel):
         if 'new_password' in info.data and v != info.data['new_password']:
             raise ValueError('New passwords do not match')
         return v
-
-# Example usage in route response model:
-# @router.get("/my-votes", response_model=StandardResponse[MyVotesResponse])
-# async def get_my_votes(...):
-#     ...
